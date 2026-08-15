@@ -1,1 +1,126 @@
 
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#070b13">
+<title>AI Map — แผนที่หุ้น AI และตัวหาเส้น EMA</title>
+<meta name="description" content="แผนที่หุ้น AI ตามธีมธุรกิจ และตัวหาหุ้นที่ราคาใกล้เส้น EMA จาก S&P 500 + Nasdaq 100">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="tabs">
+    <button class="tab on" data-page="map">AI Map</button>
+    <button class="tab" data-page="ema">หาเส้น EMA</button>
+    <span class="badge" id="demoBadge" hidden>ข้อมูลจำลอง</span>
+  </nav>
+
+  <header>
+    <h1 id="pageTitle">AI Map</h1>
+    <p class="meta" id="meta">กำลังโหลดข้อมูล…</p>
+  </header>
+
+  <!-- ─────────── หน้าที่ 1: AI Map ─────────── -->
+  <section id="pageMap">
+    <div class="panel">
+      <div class="line">
+        <div class="seg" id="period">
+          <span class="lab">ช่วงเวลา</span>
+          <button data-v="1d">1 วัน</button><button data-v="1w">1 สัปดาห์</button>
+          <button class="on" data-v="1m">1 เดือน</button><button data-v="3m">3 เดือน</button>
+          <button data-v="ytd">ต้นปี</button><button data-v="1y">1 ปี</button>
+        </div>
+        <div class="seg" id="mapShow">
+          <span class="lab">แสดง</span>
+          <button class="on" data-v="all">ทั้งหมด</button>
+          <button data-v="up">เฉพาะตัวบวก</button>
+          <button data-v="down">เฉพาะตัวลบ</button>
+        </div>
+      </div>
+    </div>
+    <p class="hint">เรียงกล่องจากกลุ่มที่ค่ากลางแรงสุดลงไปหาอ่อนสุด · คลิกการ์ดเพื่อดูรายละเอียด</p>
+    <div id="groups"></div>
+  </section>
+
+  <!-- ─────────── หน้าที่ 2: หาเส้น EMA ─────────── -->
+  <section id="pageEma" hidden>
+    <div class="panel">
+      <div class="line">
+        <input type="search" id="q" placeholder="ค้นหา: AAPL, Apple, พลังงาน…" autocomplete="off">
+        <select id="sector"><option value="">ทุกหมวดธุรกิจ</option></select>
+        <select id="theme"><option value="">ทุกธีม AI</option></select>
+        <select id="sort">
+          <option value="score">เรียง: คะแนน</option>
+          <option value="near">เรียง: จำนวนเส้นที่ชน</option>
+          <option value="dist">เรียง: ใกล้เส้นที่สุด</option>
+          <option value="chg">เรียง: เปลี่ยนแปลงวันนี้</option>
+          <option value="vol">เรียง: มูลค่าซื้อขาย</option>
+          <option value="sym">เรียง: ชื่อย่อ A-Z</option>
+        </select>
+      </div>
+      <div class="line">
+        <label class="slider">
+          <span class="lab">ระยะที่ถือว่า “ใกล้”</span>
+          <input type="range" id="tol" min="0.3" max="6" step="0.1" value="1.5">
+          <output id="tolOut">1.5%</output>
+        </label>
+        <div class="seg" id="minNear">
+          <span class="lab">ชนอย่างน้อย</span>
+          <button class="on" data-v="1">1</button><button data-v="2">2</button>
+          <button data-v="3">3</button><button data-v="4">4</button>
+        </div>
+      </div>
+      <div class="line">
+        <div class="seg" id="trend">
+          <span class="lab">เทรนด์</span>
+          <button class="on" data-v="all">ทั้งหมด</button>
+          <button data-v="up">ขาขึ้น</button><button data-v="down">ขาลง</button>
+        </div>
+        <div class="seg" id="side">
+          <span class="lab">ตำแหน่งราคา</span>
+          <button class="on" data-v="both">ทั้งสองฝั่ง</button>
+          <button data-v="above">เหนือเส้น</button><button data-v="below">ใต้เส้น</button>
+        </div>
+        <div class="seg lines" id="lines"><span class="lab">นับเฉพาะเส้น</span></div>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+    <div class="resultbar">
+      <span id="count"></span>
+      <button id="csv" class="ghost">ดาวน์โหลด CSV</button>
+    </div>
+    <div class="egrid" id="egrid"></div>
+    <p class="empty" id="emptyEma" hidden>ไม่มีหุ้นตรงเงื่อนไข — ลองเพิ่มระยะ หรือลดจำนวนเส้นที่ต้องชน</p>
+  </section>
+
+  <!-- ─────────── หน้าต่างรายละเอียดหุ้น ─────────── -->
+  <div class="modal" id="modal" hidden>
+    <div class="sheet">
+      <button class="x" id="modalClose" aria-label="ปิด">✕</button>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <footer>
+    <div id="footMap">
+      <p>ค่ากลางของกลุ่มใช้ <b>median</b> ไม่ใช่ค่าเฉลี่ย เพราะหุ้นตัวใหญ่ที่วิ่งแรงมากจะดึงค่าเฉลี่ยเพี้ยนจนอ่านภาพรวมกลุ่มไม่ได้</p>
+      <p>หุ้นที่มีประวัติราคาไม่ครบช่วงเวลาที่เลือกจะไม่ถูกนำมาแสดง</p>
+    </div>
+    <div id="footEma" hidden>
+      <p><b>วิธีอ่าน</b> — ช่องเลข 6 ช่องคือเส้น EMA ทั้ง 6 เส้น ตัวเลขคือระยะห่างของราคาจากเส้นนั้นเป็น %
+        (บวก = ราคาอยู่เหนือเส้น) <span class="hl">ช่องไฮไลต์คือเส้นที่ราคากำลังชนอยู่</span></p>
+      <p><b>คะแนน</b> — ชนหลายเส้นยิ่งสูง เส้นยาว (100/200) มีน้ำหนักมากกว่า บวกเพิ่มถ้าเป็นขาขึ้น</p>
+      <p><b>เทรนด์</b> — ขาขึ้น = ราคาเหนือ EMA200 และ EMA50 อยู่เหนือ EMA200</p>
+    </div>
+    <p>% เปลี่ยนแปลงคำนวณจากราคาปิดที่ปรับปันผลและการแตกพาร์แล้ว (adjusted close)</p>
+    <p class="disc">เครื่องมือส่วนตัวสำหรับประกอบการตัดสินใจ ไม่ใช่คำแนะนำการลงทุน</p>
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
