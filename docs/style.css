@@ -1,1 +1,249 @@
+:root{
+  --bg:#070b13;
+  --panel:#0e1522;
+  --card:#121b2c;
+  --sunk:#0a111d;
+  --line:#1d2739;
+  --ink:#e9eef7;
+  --dim:#8794a9;
+  --faint:#586274;
+  --up:#2ee89a;
+  --upbg:rgba(46,232,154,.10);
+  --down:#ff6b81;
+  --downbg:rgba(255,107,129,.10);
+  --accent:#5b9dff;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);line-height:1.5;
+  font-family:"Segoe UI","Noto Sans Thai",system-ui,-apple-system,sans-serif;
+}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1500px;margin:0 auto;padding:20px 16px 70px}
 
+/* ── header ── */
+header{margin-bottom:16px}
+.titlerow{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+h1{font-size:23px;margin:0;letter-spacing:-.3px}
+.sub{color:var(--dim);font-size:13.5px}
+.meta{color:var(--dim);font-size:13px;margin:6px 0 0}
+.meta b{color:var(--ink);font-weight:600}
+.dim{color:var(--faint)}
+
+/* ── controls ── */
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.seg{display:flex;align-items:center;gap:4px;background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;padding:6px 10px;flex-wrap:wrap}
+.lab{color:var(--faint);font-size:12px;margin-right:4px;white-space:nowrap}
+.btn{color:var(--dim);border-radius:7px;padding:4px 11px;font-size:13px;
+  border:1px solid transparent;white-space:nowrap}
+.btn:hover{color:var(--ink);background:#16203300}
+.btn.on{background:#1b2b47;border-color:var(--accent);color:#fff;font-weight:600}
+.btn.up.on{background:var(--upbg);border-color:var(--up);color:var(--up)}
+.btn.down.on{background:var(--downbg);border-color:var(--down);color:var(--down)}
+.hint{color:var(--faint);font-size:12.5px;margin:0 0 16px 2px}
+
+/* ── group box ── */
+.group{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:14px 15px 15px;margin-bottom:13px;position:relative;overflow:hidden}
+.group::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--faint)}
+.group.pos::before{background:var(--up)}
+.group.neg::before{background:var(--down)}
+
+.ghead{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;
+  padding-bottom:11px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+.gtitle{display:flex;flex-direction:column;gap:1px;min-width:0}
+.ghead h2{font-size:16.5px;margin:0;letter-spacing:-.1px}
+.gdesc{color:var(--faint);font-size:12px}
+.gstats{margin-left:auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.tally{font-size:13px;color:var(--faint);
+  font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+.tally b{font-weight:600}
+.median{font-size:15px;font-weight:700;padding:3px 11px;border-radius:8px;
+  background:var(--sunk);color:var(--dim);
+  font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+.median.up{color:var(--up);background:var(--upbg)}
+.median.down{color:var(--down);background:var(--downbg)}
+.up{color:var(--up)} .down{color:var(--down)}
+
+/* ── stock cards ── */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:7px}
+.card{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--faint);
+  border-radius:9px;padding:8px 10px;display:block;transition:background .12s,transform .12s}
+.card:hover{background:#182236;transform:translateY(-1px)}
+.card.up{border-left-color:var(--up)}
+.card.down{border-left-color:var(--down)}
+.row1{display:flex;align-items:baseline;gap:8px}
+.tk{font-size:14.5px;font-weight:700;letter-spacing:.3px}
+.pct{margin-left:auto;font-size:14px;font-weight:700;
+  font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+.card.up .pct{color:var(--up)}
+.card.down .pct{color:var(--down)}
+.card.flat .pct{color:var(--dim)}
+.row2{display:flex;align-items:baseline;gap:8px;margin-top:1px}
+.nm{color:var(--faint);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.px{margin-left:auto;color:var(--dim);font-size:11.5px;
+  font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+.none{color:var(--faint);font-size:13px;margin:2px 0 0;padding:6px 0}
+
+/* ── notice ── */
+.notice{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.notice p{margin:0 0 8px;color:var(--dim);font-size:14px}
+.notice p b{color:var(--ink)}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:8px;
+  padding:10px 13px;color:var(--accent);font-size:13.5px;overflow-x:auto;margin:0 0 14px}
+
+/* ── stock detail ── */
+.back{color:var(--accent);font-size:13.5px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+  gap:9px;margin:16px 0}
+.pcell{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+.pcell .k{color:var(--faint);font-size:11.5px}
+.pcell .v{font-size:19px;font-weight:700;margin-top:2px;
+  font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+.soon{background:var(--panel);border:1px dashed var(--line);border-radius:12px;
+  padding:16px 18px;color:var(--faint);font-size:13.5px}
+.soon ul{margin:8px 0 0;padding-left:20px}
+.soon li{margin:4px 0}
+
+/* ── footer ── */
+footer{margin-top:30px;padding-top:15px;border-top:1px solid var(--line);
+  color:var(--faint);font-size:12.5px}
+footer p{margin:0 0 6px}
+footer b{color:var(--dim)}
+.disc{margin-top:11px;color:#454f60}
+
+@media(max-width:600px){
+  .cards{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .gstats{margin-left:0;width:100%}
+  h1{font-size:20px}
+}
+
+/* ── แท็บสลับหน้า ── */
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line);
+  padding-bottom:0}
+.tabs a{padding:8px 16px;color:var(--dim);font-size:14px;font-weight:600;
+  border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs a:hover{color:var(--ink)}
+.tabs a.on{color:var(--ink);border-bottom-color:var(--accent)}
+
+/* ── แผงตัวกรองหน้า EMA ── */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.panel .line{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+input[type=search],select{background:var(--sunk);border:1px solid var(--line);
+  color:var(--ink);border-radius:8px;padding:8px 11px;font-size:14px;
+  font-family:inherit;outline:none}
+input[type=search]{flex:1 1 190px;min-width:0}
+select{cursor:pointer}
+input[type=search]:focus,select:focus{border-color:var(--accent)}
+.slider{display:flex;align-items:center;gap:9px;background:var(--sunk);
+  border:1px solid var(--line);border-radius:8px;padding:6px 11px;flex:1 1 250px}
+input[type=range]{flex:1;min-width:80px;accent-color:var(--accent);height:20px}
+#tolOut{color:var(--accent);font-weight:700;font-size:14px;min-width:46px;text-align:right;
+  font-family:ui-monospace,Consolas,monospace}
+.seg button{background:transparent;border:1px solid transparent;color:var(--dim);
+  border-radius:6px;padding:3px 10px;font-size:13px;font-family:inherit;cursor:pointer}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:#1c2a44;border-color:var(--accent);color:#fff;font-weight:600}
+.seg.lines button{min-width:36px;text-align:center}
+
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:13px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.stat .k{color:var(--faint);font-size:11px}
+.stat .v{font-size:19px;font-weight:700;margin-top:1px;
+  font-family:ui-monospace,Consolas,monospace}
+.resultbar{display:flex;align-items:center;justify-content:space-between;
+  margin:0 2px 10px;color:var(--dim);font-size:13px}
+.ghost{background:transparent;border:1px solid var(--line);color:var(--dim);
+  border-radius:7px;padding:5px 12px;font-size:12.5px;font-family:inherit;cursor:pointer}
+.ghost:hover{color:var(--ink);border-color:var(--faint)}
+
+/* ── การ์ดหน้า EMA ── */
+.egrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:11px}
+.ecard{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--faint);
+  border-radius:12px;padding:12px 13px 11px;display:block;transition:background .12s}
+.ecard:hover{background:#182236}
+.ecard.up{border-left-color:var(--up)}
+.ecard.down{border-left-color:var(--down)}
+.ecard .row1{display:flex;align-items:baseline;gap:7px}
+.ecard .tk{font-size:16.5px;font-weight:700;letter-spacing:.3px}
+.ecard .chg{font-size:12px;font-weight:600;font-family:ui-monospace,Consolas,monospace}
+.ecard .chg.p{color:var(--up)} .ecard .chg.n{color:var(--down)}
+.ecard .px{margin-left:auto;font-size:15px;font-weight:600;
+  font-family:ui-monospace,Consolas,monospace}
+.ecard .nm{color:var(--dim);font-size:12.5px;margin:1px 0 8px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
+.b{font-size:11.5px;padding:2px 8px;border-radius:6px;background:#1a2438;color:var(--dim)}
+.b.up{background:rgba(46,232,154,.13);color:var(--up)}
+.b.down{background:rgba(255,107,129,.13);color:var(--down)}
+.b.sig{background:rgba(91,157,255,.14);color:var(--accent)}
+.emas{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+.e{text-align:center;background:var(--sunk);border:1px solid transparent;
+  border-radius:6px;padding:4px 1px}
+.e .lb{font-size:10px;color:var(--faint);line-height:1.3}
+.e .dv{font-size:11px;color:var(--dim);line-height:1.35;
+  font-family:ui-monospace,Consolas,monospace}
+.e.hit{border-color:#fbbf24;background:rgba(251,191,36,.11)}
+.e.hit .lb{color:#fbbf24}
+.e.hit .dv{color:var(--ink);font-weight:600}
+.e.off{opacity:.32}
+.efoot{display:flex;gap:11px;margin-top:9px;font-size:11.5px;color:var(--faint)}
+.efoot b{color:var(--ink);font-family:ui-monospace,Consolas,monospace}
+@media(max-width:600px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .egrid{grid-template-columns:1fr}
+}
+
+/* ── แท็บแบบปุ่ม (เว็บ static ไม่มีการโหลดหน้าใหม่) ── */
+.tabs{display:flex;gap:4px;align-items:center;margin-bottom:16px;
+  border-bottom:1px solid var(--line)}
+.tab{background:transparent;border:none;border-bottom:2px solid transparent;
+  padding:9px 18px;color:var(--dim);font-size:14.5px;font-weight:600;
+  font-family:inherit;cursor:pointer;margin-bottom:-1px}
+.tab:hover{color:var(--ink)}
+.tab.on{color:var(--ink);border-bottom-color:var(--accent)}
+.tabs .badge{margin-left:auto;font-size:11px;padding:2px 9px;border-radius:20px;
+  background:rgba(251,191,36,.14);color:#fbbf24;border:1px solid rgba(251,191,36,.4)}
+
+.tally .of{color:var(--faint);font-weight:400;font-family:inherit}
+
+/* การ์ดเป็นปุ่ม จึงต้องรีเซ็ตสไตล์ปุ่มเริ่มต้นของเบราว์เซอร์ */
+button.card,button.ecard{font-family:inherit;text-align:left;cursor:pointer;width:100%}
+button.card{border:1px solid var(--line);border-left:3px solid var(--faint)}
+button.card.up{border-left-color:var(--up)}
+button.card.down{border-left-color:var(--down)}
+
+/* ── หน้าต่างรายละเอียดหุ้น ── */
+.modal{position:fixed;inset:0;background:rgba(3,6,12,.78);z-index:50;
+  display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;
+  overflow-y:auto;backdrop-filter:blur(3px)}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  padding:20px 22px 24px;max-width:640px;width:100%;position:relative}
+.sheet .x{position:absolute;top:12px;right:14px;background:transparent;border:none;
+  color:var(--faint);font-size:17px;cursor:pointer;padding:6px 9px;border-radius:8px}
+.sheet .x:hover{color:var(--ink);background:var(--sunk)}
+.mhead{display:flex;align-items:baseline;gap:12px}
+.mhead h2{font-size:24px;margin:0;letter-spacing:.3px}
+.mprice{font-size:20px;font-weight:700;font-family:ui-monospace,Consolas,monospace}
+.mname{color:var(--dim);font-size:13.5px;margin:2px 0 14px}
+.mspark{display:block;width:100%;height:64px;margin-bottom:4px}
+.mnote{color:var(--faint);font-size:12px;margin:0 0 16px}
+.mnote b{color:var(--dim)}
+.sheet h3{font-size:13px;color:var(--faint);font-weight:600;margin:18px 0 8px;
+  text-transform:none;letter-spacing:.3px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:7px}
+.pcell{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+.pcell .k{color:var(--faint);font-size:11px}
+.pcell .v{font-size:16px;font-weight:700;margin-top:1px;
+  font-family:ui-monospace,Consolas,monospace}
+.emas.big{grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:8px}
+.emas.big .e{padding:7px 2px}
+.emas.big .lb{font-size:10.5px}
+.emas.big .dv{font-size:12.5px}
+@media(max-width:600px){
+  .emas.big{grid-template-columns:repeat(3,1fr)}
+  .sheet{padding:18px 16px 20px}
+}
