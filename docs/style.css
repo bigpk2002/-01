@@ -134,7 +134,7 @@ footer b{color:var(--dim)}
 .panel .line{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 input[type=search],select{background:var(--sunk);border:1px solid var(--line);
   color:var(--ink);border-radius:8px;padding:8px 11px;font-size:14px;
-  font-family:inherit;outline:none}
+  font-family:inherit;outline:none;max-width:100%}
 input[type=search]{flex:1 1 190px;min-width:0}
 select{cursor:pointer}
 input[type=search]:focus,select:focus{border-color:var(--accent)}
@@ -195,6 +195,11 @@ input[type=range]{flex:1;min-width:80px;accent-color:var(--accent);height:20px}
 @media(max-width:600px){
   .stats{grid-template-columns:repeat(2,1fr)}
   .egrid{grid-template-columns:1fr}
+  /* จอแคบ: ช่องเลือกยาว ๆ ให้ขึ้นบรรทัดใหม่เต็มความกว้าง ไม่ดันจนล้นจอ */
+  .panel select{flex:1 1 100%;width:100%;min-width:0}
+  .panel .line{gap:8px}
+  .slider{flex:1 1 100%}
+  .seg{flex:1 1 100%}
 }
 
 /* ── แท็บแบบปุ่ม (เว็บ static ไม่มีการโหลดหน้าใหม่) ── */
