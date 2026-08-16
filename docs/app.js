@@ -1,4 +1,3 @@
-
 /* AI Map + ตัวหาเส้น EMA
    โหลด data.json ที่ GitHub Actions สร้างไว้ แล้วกรอง/จัดอันดับในเบราว์เซอร์
    จึงเลื่อนแถบหรือกดปุ่มแล้วเห็นผลทันที ไม่ต้องรอเซิร์ฟเวอร์ */
@@ -33,6 +32,32 @@
     return v >= 1000 ? (v / 1000).toFixed(1) + " พันล้าน" : Math.round(v) + " ล้าน";
   }
   function sign(v) { return (v > 0 ? "+" : "") + v.toFixed(2); }
+
+  // ขนาดเงินดอลลาร์เป็นภาษาไทย
+  function money(v) {
+    if (v == null) return "—";
+    var a = Math.abs(v);
+    if (a >= 1e12) return (v / 1e12).toFixed(2) + " ล้านล้าน";
+    if (a >= 1e9) return (v / 1e9).toFixed(1) + " พันล้าน";
+    if (a >= 1e6) return (v / 1e6).toFixed(0) + " ล้าน";
+    return v.toLocaleString();
+  }
+  function num(v, d) { return v == null ? "—" : v.toFixed(d === undefined ? 2 : d); }
+  function pctv(v, d) { return v == null ? "—" : (v * 100).toFixed(d === undefined ? 1 : d) + "%"; }
+
+  // จัดขนาดบริษัทตามมูลค่าตลาด (เกณฑ์ที่ใช้กันทั่วไปในตลาดสหรัฐ)
+  function capClass(mc) {
+    if (mc == null) return "";
+    if (mc >= 200e9) return "ขนาดใหญ่พิเศษ";
+    if (mc >= 10e9) return "ขนาดใหญ่";
+    if (mc >= 2e9) return "ขนาดกลาง";
+    return "ขนาดเล็ก";
+  }
+
+  var REC_TH = {
+    strong_buy: "แนะนำซื้อมาก", buy: "แนะนำซื้อ", hold: "ถือ",
+    sell: "แนะนำขาย", underperform: "ต่ำกว่าตลาด", none: "—"
+  };
   function cls(v) { return v > 0 ? "up" : v < 0 ? "down" : ""; }
 
   /* ───────────────── โหลดข้อมูล ───────────────── */
@@ -286,6 +311,126 @@
 
   /* ───────────────── หน้าต่างรายละเอียด ───────────────── */
 
+  /* สร้างส่วน "ข้อมูลพื้นฐานบริษัท" ในหน้าต่างรายละเอียด
+
+     แนวคิด: ตัวเลขอย่าง P/E ดูตัวเดียวไม่มีความหมาย ต้องเทียบกับอะไรสักอย่าง
+     จึงเทียบกับค่ากลางของหุ้นในหมวดธุรกิจเดียวกันที่คำนวณจากข้อมูลชุดนี้เอง
+     เพราะแต่ละหมวดมีระดับ P/E ต่างกันมาก (เทคฯ สูงกว่าธนาคารเป็นเท่าตัวโดยปกติ) */
+  function buildFundamentals(r) {
+    var f = r.f;
+    if (!f) {
+      return "<h3>ข้อมูลพื้นฐานบริษัท</h3>" +
+        '<p class="mnote">ยังไม่มีข้อมูลของหุ้นตัวนี้ — ระบบทยอยเก็บวันละ 180 ตัว ' +
+        "ผ่านไปสองสามวันจะครบเอง</p>";
+    }
+
+    var med = (D.meta.sector_med || {})[r.g] || {};
+
+    // แถวเทียบกับค่ากลางหมวด
+    function cmpRow(label, val, medv, fmt, hint) {
+      if (val == null) return "";
+      var right = "";
+      if (medv != null && medv > 0 && val > 0) {
+        var diff = (val / medv - 1) * 100;
+        var cls2 = diff > 15 ? "down" : diff < -15 ? "up" : "";
+        var word = diff > 15 ? "สูงกว่าหมวด" : diff < -15 ? "ต่ำกว่าหมวด" : "ใกล้เคียงหมวด";
+        right = '<span class="cmp ' + cls2 + '">' + word + " " +
+                Math.abs(diff).toFixed(0) + "%</span>" +
+                '<span class="medv">ค่ากลางหมวด ' + fmt(medv) + "</span>";
+      }
+      return '<div class="frow"><div class="fk">' + label +
+             (hint ? '<span class="fh">' + hint + "</span>" : "") + "</div>" +
+             '<div class="fv">' + fmt(val) + "</div>" +
+             '<div class="fc">' + right + "</div></div>";
+    }
+
+    var valuation =
+      cmpRow("P/E", f.pe, med.pe, function (v) { return num(v, 1) + " เท่า"; },
+             "ราคาเป็นกี่เท่าของกำไรต่อหุ้น") +
+      cmpRow("P/E คาดการณ์", f.fpe, null, function (v) { return num(v, 1) + " เท่า"; },
+             "คิดจากกำไรที่นักวิเคราะห์คาดปีหน้า") +
+      cmpRow("P/BV", f.pb, med.pb, function (v) { return num(v, 2) + " เท่า"; },
+             "ราคาเป็นกี่เท่าของมูลค่าทางบัญชี") +
+      cmpRow("P/S", f.ps, med.ps, function (v) { return num(v, 2) + " เท่า"; },
+             "ราคาเป็นกี่เท่าของรายได้");
+
+    if (!valuation) valuation = '<p class="mnote">ไม่มีข้อมูลอัตราส่วนราคา</p>';
+
+    // สรุปว่าแพงหรือถูกเทียบเพื่อนในหมวด
+    var verdict = "";
+    if (f.pe != null && med.pe) {
+      var d = (f.pe / med.pe - 1) * 100;
+      var t = d > 25 ? ["แพงกว่าค่ากลางของหมวดพอสมควร", "down"]
+            : d > 10 ? ["สูงกว่าค่ากลางของหมวดเล็กน้อย", ""]
+            : d < -25 ? ["ถูกกว่าค่ากลางของหมวดพอสมควร", "up"]
+            : d < -10 ? ["ต่ำกว่าค่ากลางของหมวดเล็กน้อย", ""]
+            : ["อยู่ในระดับใกล้เคียงค่ากลางของหมวด", ""];
+      verdict = '<div class="verdict ' + t[1] + '">P/E ' + num(f.pe, 1) +
+        " เท่า · " + t[0] + " (" + esc(r.g) + " ค่ากลาง " + num(med.pe, 1) + ")</div>";
+    } else if (f.pe == null) {
+      verdict = '<div class="verdict">ไม่มีค่า P/E — มักหมายถึงบริษัทยังขาดทุนอยู่ ' +
+                "จึงคำนวณอัตราส่วนนี้ไม่ได้</div>";
+    }
+
+    // ตัวเลขสุขภาพกิจการ
+    var health = [
+      ["มูลค่าบริษัท", money(f.mc), capClass(f.mc)],
+      ["กำไรต่อหุ้น", f.eps == null ? "—" : "$" + num(f.eps, 2), ""],
+      ["ROE", pctv(f.roe), "ผลตอบแทนต่อส่วนผู้ถือหุ้น"],
+      ["อัตรากำไรสุทธิ", pctv(f.pm), ""],
+      ["รายได้เติบโต", f.rg == null ? "—" : (f.rg > 0 ? "+" : "") + pctv(f.rg), "เทียบปีก่อน"],
+      ["กำไรเติบโต", f.eg == null ? "—" : (f.eg > 0 ? "+" : "") + pctv(f.eg), "เทียบปีก่อน"],
+      ["หนี้สินต่อทุน", f.de == null ? "—" : num(f.de, 0) + "%", ""],
+      ["ปันผล", f.dy == null ? "—" : pctv(f.dy, 2), "ต่อปี"],
+      ["ความผันผวน", f.beta == null ? "—" : num(f.beta, 2), "เทียบตลาดรวม (1.0 = เท่าตลาด)"],
+      ["พนักงาน", f.emp == null ? "—" : Math.round(f.emp).toLocaleString() + " คน", ""]
+    ].filter(function (x) { return x[1] !== "—"; })
+     .map(function (x) {
+       return '<div class="pcell"><div class="k">' + x[0] +
+         (x[2] ? '<span class="fh">' + x[2] + "</span>" : "") + "</div>" +
+         '<div class="v sm">' + x[1] + "</div></div>";
+     }).join("");
+
+    // ตำแหน่งราคาในรอบ 52 สัปดาห์
+    var range = "";
+    if (f.hi && f.lo && f.hi > f.lo) {
+      var pos = Math.max(0, Math.min(100, (r.p - f.lo) / (f.hi - f.lo) * 100));
+      var fromHi = (r.p / f.hi - 1) * 100;
+      range = "<h3>ช่วงราคา 52 สัปดาห์</h3>" +
+        '<div class="range"><div class="bar"><div class="dot" style="left:' +
+          pos.toFixed(1) + '%"></div></div>' +
+        '<div class="rends"><span>ต่ำสุด $' + num(f.lo, 2) + "</span>" +
+          '<span>สูงสุด $' + num(f.hi, 2) + "</span></div></div>" +
+        '<p class="mnote">ราคาปัจจุบันอยู่ที่ ' + pos.toFixed(0) +
+        "% ของช่วง · ห่างจากจุดสูงสุด " + num(Math.abs(fromHi), 1) + "%</p>";
+    }
+
+    // มุมมองนักวิเคราะห์
+    var analyst = "";
+    if (f.tgt) {
+      var up = (f.tgt / r.p - 1) * 100;
+      analyst = "<h3>มุมมองนักวิเคราะห์</h3>" +
+        '<div class="pgrid wide"><div class="pcell"><div class="k">ราคาเป้าหมายเฉลี่ย</div>' +
+          '<div class="v sm">$' + num(f.tgt, 2) + "</div></div>" +
+        '<div class="pcell"><div class="k">ห่างจากราคาปัจจุบัน</div>' +
+          '<div class="v sm ' + (up > 0 ? "up" : "down") + '">' + sign(up) + "%</div></div>" +
+        (f.rec ? '<div class="pcell"><div class="k">คำแนะนำรวม</div>' +
+          '<div class="v sm">' + (REC_TH[f.rec] || esc(f.rec)) + "</div></div>" : "") +
+        (f.na ? '<div class="pcell"><div class="k">จำนวนนักวิเคราะห์</div>' +
+          '<div class="v sm">' + Math.round(f.na) + " ราย</div></div>" : "") +
+        "</div>" +
+        '<p class="mnote">เป็นความเห็นของนักวิเคราะห์ ไม่ใช่การรับประกัน ' +
+        "ราคาเป้าหมายมักถูกปรับตามราคาตลาดอยู่เสมอ</p>";
+    }
+
+    return "<h3>ราคาแพงหรือถูก</h3>" + verdict +
+      '<div class="ftable">' + valuation + "</div>" +
+      '<p class="mnote">ตัวเลขพวกนี้ดูตัวเดียวตัดสินไม่ได้ ต้องดูคู่กับการเติบโตและคุณภาพกิจการ · ' +
+      "แต่ละหมวดธุรกิจมีระดับปกติต่างกันมาก จึงเทียบกับค่ากลางของหมวดเดียวกัน</p>" +
+      (health ? "<h3>ตัวเลขกิจการ</h3><div class='pgrid wide'>" + health + "</div>" : "") +
+      range + analyst;
+  }
+
   function openStock(tk) {
     var r = byTicker[tk];
     if (!r) return;
@@ -315,7 +460,15 @@
       return t.tickers.indexOf(tk) >= 0;
     }).map(function (t) { return '<span class="b">' + esc(t.name) + "</span>"; }).join("");
 
-    $("modalBody").innerHTML =
+    var fundBlock = buildFundamentals(r);
+
+    // เตือนให้เห็นชัดในหน้าต่างด้วย ไม่ใช่แค่ป้ายมุมบนที่อาจถูกบัง
+    var demoWarn = D.meta.demo
+      ? '<div class="demowarn">ตัวเลขทั้งหมดในหน้านี้เป็น<b>ข้อมูลจำลอง</b> ' +
+        "ไม่ใช่ราคาจริง — ใช้ดูหน้าตาเท่านั้น</div>"
+      : "";
+
+    $("modalBody").innerHTML = demoWarn +
       '<div class="mhead"><h2>' + esc(r.s) + '</h2>' +
         '<span class="mprice">$' + r.p + "</span></div>" +
       '<p class="mname">' + esc(r.n) + (r.g ? " · " + esc(r.g) : "") + "</p>" +
@@ -324,7 +477,7 @@
         '" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>' +
       '<p class="mnote">ราคา 60 วันทำการล่าสุด</p>' +
       "<h3>ผลตอบแทนแต่ละช่วง</h3><div class='pgrid'>" + perf + "</div>" +
-      emaBlock +
+      emaBlock + fundBlock +
       (themes ? "<h3>ธีมที่สังกัด</h3><div class='badges'>" + themes + "</div>" : "") +
       (r.v ? '<p class="mnote">มูลค่าซื้อขายเฉลี่ย 20 วัน ' + fmtM(r.v) + " ดอลลาร์</p>" : "");
 
