@@ -13,6 +13,9 @@ on:
       limit:
         description: "จำกัดจำนวนหุ้น (เว้นว่าง = ทั้งหมด, ใส่ 60 เพื่อทดลองเร็ว ๆ)"
         default: ""
+      skip_fundamentals:
+        description: "ข้ามข้อมูลพื้นฐาน (ใส่ yes ถ้าอยากได้ราคาเร็ว ๆ)"
+        default: ""
 
 permissions:
   contents: write
@@ -39,16 +42,18 @@ jobs:
         env:
           PERIOD: ${{ inputs.period || '3y' }}
           LIMIT: ${{ inputs.limit }}
+          SKIPF: ${{ inputs.skip_fundamentals }}
         run: |
           ARGS="--period $PERIOD"
           if [ -n "$LIMIT" ]; then ARGS="$ARGS --limit $LIMIT"; fi
+          if [ -n "$SKIPF" ]; then ARGS="$ARGS --skip-fundamentals"; fi
           python build.py $ARGS
 
       - name: อัปเดตเว็บไซต์
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f docs/data.json
+          git add -f docs/data.json docs/fundamentals.json
           if git diff --quiet --cached; then
             echo "ข้อมูลไม่เปลี่ยน ไม่ต้องคอมมิต"
           else
@@ -61,5 +66,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: data-${{ github.run_number }}
-          path: docs/data.json
+          path: |
+            docs/data.json
+            docs/fundamentals.json
           retention-days: 14
