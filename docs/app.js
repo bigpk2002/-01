@@ -416,8 +416,12 @@
      }).join("");
 
     // ตำแหน่งราคาในรอบ 52 สัปดาห์
+    // ตรวจซ้ำอีกชั้นก่อนแสดง: ราคาต้องอยู่ในช่วงสูงสุด/ต่ำสุดเสมอ
+    // ถ้าอยู่นอกช่วงแปลว่าข้อมูลเก่าใช้ไม่ได้ ไม่ต้องแสดงดีกว่าแสดงผิด
     var range = "";
-    if (f.hi && f.lo && f.hi > f.lo) {
+    var rangeOK = f.hi && f.lo && f.hi > f.lo &&
+                  r.p >= f.lo * 0.95 && r.p <= f.hi * 1.05;
+    if (rangeOK) {
       var pos = Math.max(0, Math.min(100, (r.p - f.lo) / (f.hi - f.lo) * 100));
       var fromHi = (r.p / f.hi - 1) * 100;
       range = "<h3>ช่วงราคา 52 สัปดาห์</h3>" +
@@ -431,7 +435,7 @@
 
     // มุมมองนักวิเคราะห์
     var analyst = "";
-    if (f.tgt) {
+    if (f.tgt && f.tgt < r.p * 3 && f.tgt > r.p * 0.3) {
       var up = (f.tgt / r.p - 1) * 100;
       analyst = "<h3>มุมมองนักวิเคราะห์</h3>" +
         '<div class="pgrid wide"><div class="pcell"><div class="k">ราคาเป้าหมายเฉลี่ย</div>' +
