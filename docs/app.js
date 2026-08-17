@@ -16,7 +16,7 @@
     page: "map",
     period: "1m", mapShow: "all",
     q: "", sector: "", theme: "", sort: "score",
-    tol: 1.5, minNear: 1, trend: "all", side: "both", lines: []
+    tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: []
   };
 
   var byTicker = {};
@@ -243,6 +243,21 @@
     return { near: near, score: Math.round(score * 100) / 100, sig: sig, nd: nd };
   }
 
+  // ช่วงค่า P/E ให้เลือก — ตัวที่ไม่มีค่า P/E มักเป็นบริษัทที่ยังขาดทุนอยู่
+  var PE_RANGE = {
+    "u20": [0, 20], "20-40": [20, 40], "40-70": [40, 70],
+    "70-100": [70, 100], "o100": [100, Infinity]
+  };
+
+  function passPE(r) {
+    if (st.pe === "all") return true;
+    var v = (r.f || {}).pe;
+    if (st.pe === "none") return v == null;
+    if (v == null) return false;
+    var b = PE_RANGE[st.pe];
+    return b && v >= b[0] && v < b[1];
+  }
+
   var currentEma = [];
 
   function renderEma() {
@@ -261,6 +276,7 @@
       if (st.sector && r.g !== st.sector) return;
       if (themeSet && themeSet.indexOf(r.s) < 0) return;
       if (st.trend !== "all" && r.t !== st.trend) return;
+      if (!passPE(r)) return;
       if (q && (r.s + " " + r.n + " " + r.g).toLowerCase().indexOf(q) < 0) return;
       var ev = evaluate(r);
       if (!ev || ev.near.length < st.minNear) return;
@@ -274,6 +290,12 @@
       if (k === "dist") return a.ev.nd - b.ev.nd;
       if (k === "chg") return (b.r.r[di] || 0) - (a.r.r[di] || 0);
       if (k === "vol") return (b.r.v || 0) - (a.r.v || 0);
+      if (k === "pe") {
+        var pa = (a.r.f || {}).pe, pb2 = (b.r.f || {}).pe;
+        if (pa == null) return 1;              // ตัวที่ไม่มีค่าไปอยู่ท้าย
+        if (pb2 == null) return -1;
+        return pa - pb2;                       // ถูกสุดขึ้นก่อน
+      }
       return b.ev.score - a.ev.score;
     });
     currentEma = out;
@@ -284,9 +306,13 @@
       if (o.ev.near.length >= 3) multi++;
       if (o.ev.near.some(function (p) { return p >= 100; })) big++;
     });
+    var pes = out.map(function (o) { return (o.r.f || {}).pe; })
+                 .filter(function (v) { return v != null; });
+    var medPe = pes.length ? median(pes).toFixed(1) : "—";
+
     $("stats").innerHTML = [
       ["เข้าเงื่อนไข", out.length], ["อยู่ในขาขึ้น", up],
-      ["ชน 3 เส้นขึ้นไป", multi], ["ชนเส้น 100/200", big]
+      ["ชน 3 เส้นขึ้นไป", multi], ["ค่ากลาง P/E", medPe]
     ].map(function (x) {
       return '<div class="stat"><div class="k">' + x[0] + '</div><div class="v">' + x[1] + "</div></div>";
     }).join("");
@@ -297,6 +323,7 @@
     $("egrid").innerHTML = out.map(function (o) {
       var r = o.r, ev = o.ev, c = r.t === "up" ? "up" : r.t === "down" ? "down" : "";
       var chg = r.r[di] || 0;
+      var pe = (r.f || {}).pe;
       var chips = EMAS.map(function (p, i) {
         var d = r.d[i];
         var k2 = ev.near.indexOf(p) >= 0 ? "hit" : (st.lines.indexOf(p) < 0 ? "off" : "");
@@ -314,6 +341,7 @@
         '<div class="emas">' + chips + '</div>' +
         '<div class="efoot"><span>คะแนน <b>' + ev.score + '</b></span>' +
           '<span>ชน ' + ev.near.length + ' เส้น</span>' +
+          '<span>P/E ' + (pe == null ? "—" : num(pe, 1)) + "</span>" +
           (r.v ? "<span>" + fmtM(r.v) + "</span>" : "") + "</div></button>";
     }).join("");
   }
@@ -564,6 +592,7 @@
     seg("minNear", "minNear", Number, renderEma);
     seg("trend", "trend", null, renderEma);
     seg("side", "side", null, renderEma);
+    seg("peRange", "pe", null, renderEma);
 
     var timer;
     function later(fn) { clearTimeout(timer); timer = setTimeout(fn, 50); }
