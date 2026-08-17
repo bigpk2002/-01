@@ -5,6 +5,7 @@
 (function () {
   "use strict";
 
+  var VERSION = "5";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PERIOD_TH = { "1d": "1 วัน", "1w": "1 สัปดาห์", "1m": "1 เดือน",
@@ -93,7 +94,8 @@
     $("meta").innerHTML =
       "ข้อมูลปิดตลาดวันที่ <b>" + esc(D.meta.date) + "</b> · " +
       "หุ้น <b>" + D.meta.count + "</b> ตัว · " +
-      "อัปเดตล่าสุด " + esc(D.meta.generated) + " (เวลาไทย)";
+      "อัปเดตล่าสุด " + esc(D.meta.generated) + " (เวลาไทย)" +
+      ' <span class="ver">เวอร์ชัน ' + VERSION + "</span>";
     if (D.meta.demo) $("demoBadge").hidden = false;
 
     var sel = $("sector");
