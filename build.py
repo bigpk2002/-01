@@ -442,14 +442,26 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
     today = datetime.now().date()
     prices = prices or {}
     todo, urgent = [], []
+    fake = 0
     for s in symbols:
         old = existing.get(s)
         if not old or not old.get("ts"):
             todo.append(s)
             continue
 
-        # ราคาห่างจากตอนดึงมากผิดปกติ = ข้อมูลใช้ไม่ได้แล้ว ต้องดึงใหม่ก่อนใคร
+        # ข้อมูลจำลองที่ติดมากับไฟล์ตัวอย่าง ต้องดึงของจริงมาทับก่อนเพื่อน
+        if not demo and old.get("dm"):
+            urgent.append(s)
+            fake += 1
+            continue
+
+        # ไม่มี px0 = บันทึกไว้ด้วยโค้ดรุ่นเก่า ตรวจความถูกต้องไม่ได้ ให้ดึงใหม่
         px0, pnow = old.get("px0"), prices.get(s)
+        if not demo and not px0:
+            urgent.append(s)
+            continue
+
+        # ราคาห่างจากตอนดึงมากผิดปกติ = ข้อมูลใช้ไม่ได้แล้ว ต้องดึงใหม่ก่อนใคร
         if px0 and pnow and abs(pnow / px0 - 1) > SPLIT_GUARD:
             urgent.append(s)
             continue
@@ -461,9 +473,10 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
         if age >= FUND_STALE_DAYS:
             todo.append(s)
 
+    if fake:
+        print(f"  พบข้อมูลจำลองค้างอยู่ {fake} ตัว จะดึงของจริงมาทับให้")
     if urgent:
-        print(f"  ต้องดึงใหม่ด่วน {len(urgent)} ตัว "
-              f"(ราคาต่างจากตอนเก็บมาก อาจแตกพาร์)")
+        print(f"  ต้องดึงใหม่ด่วน {len(urgent)} ตัว")
     todo = urgent + todo
 
     fresh = len(symbols) - len(todo)
@@ -504,6 +517,7 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
                 "tgt": float(px * rng.uniform(0.85, 1.35)), "na": int(rng.integers(3, 45)),
                 "rec": str(rng.choice(["buy", "hold", "strong_buy", "underperform"])),
                 "emp": int(rng.integers(500, 200000)), "ind": "ตัวอย่าง",
+                "dm": 1,                      # ธงบอกว่าเป็นข้อมูลจำลอง
                 "ts": today.isoformat(),
             }
         return existing
@@ -536,7 +550,8 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
             # กรณีนั้นห้ามบันทึกทับ ไม่งั้นข้อมูลดีที่มีอยู่จะหายและไม่ถูกดึงใหม่อีก 7 วัน
             if row.get("mc") or row.get("px0"):
                 old_row = existing.get(sym) or {}
-                merged = {k: v for k, v in old_row.items() if k != "ts"}
+                merged = {k: v for k, v in old_row.items()
+                          if k not in ("ts", "dm")}     # ล้างธงจำลองทิ้ง
                 merged.update(row)          # ค่าใหม่ทับค่าเก่า ส่วนที่ขาดใช้ของเดิมต่อ
                 merged["ts"] = today.isoformat()
                 existing[sym] = merged
@@ -840,6 +855,10 @@ def main() -> int:
         bigpe = [r["s"] for r in withf if (r["f"].get("pe") or 0) > 1000]
         if bigpe:
             checks.append(f"P/E สูงผิดปกติ {len(bigpe)} ตัว: {', '.join(bigpe[:6])}")
+        fakes = [r["s"] for r in withf if r["f"].get("dm")]
+        if fakes:
+            checks.append(f"ยังเป็นข้อมูลจำลอง {len(fakes)} ตัว — "
+                          f"รัน workflow ซ้ำจนกว่าจะหมด")
         oldf = [r["s"] for r in withf
                 if r["f"].get("fts") and
                 (datetime.now().date() - datetime.fromisoformat(r["f"]["fts"]).date()).days > 10]
