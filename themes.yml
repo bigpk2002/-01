@@ -12,6 +12,14 @@
 #     ปกติหน้าเว็บจะเรียงกล่องตาม median ของกลุ่มอัตโนมัติ
 # ─────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────
+#  หุ้นที่อยากติดตามเพิ่ม นอกเหนือจาก S&P 500 และ Nasdaq 100
+#  ใส่ชื่อย่อลงในรายการนี้ ระบบจะดึงราคาและข้อมูลพื้นฐานให้เอง
+#  ชื่อบริษัทกับหมวดธุรกิจเติมให้อัตโนมัติ ไม่ต้องกรอก
+#  หุ้นที่เพิ่มที่นี่ ถ้าอยากให้โผล่ในหน้า AI Map ต้องใส่ในธีมด้านล่างด้วย
+# ─────────────────────────────────────────────────────────────
+extra: [NBIS, SNDK]
+
 themes:
 
   - key: ai_chips
@@ -19,7 +27,7 @@ themes:
     description: ผู้ออกแบบและผลิตชิปสำหรับงาน AI
     order: 1
     tickers: [NVDA, AMD, AVGO, MRVL, MU, INTC, QCOM, TXN, ADI, NXPI, ON, MPWR,
-              MCHP, SWKS, TER, ARM]  # หมายเหตุ: ON = ON Semiconductor
+              MCHP, SWKS, TER, ARM, SNDK]  # หมายเหตุ: ON = ON Semiconductor · SNDK = SanDisk
 
   - key: semi_equipment
     name: เครื่องจักรผลิตชิป
@@ -31,7 +39,7 @@ themes:
     name: Cloud & Hyperscaler
     description: ผู้ให้บริการคลาวด์รายใหญ่ที่ลงทุนดาต้าเซ็นเตอร์ AI
     order: 3
-    tickers: [MSFT, GOOGL, AMZN, META, ORCL, IBM, SNOW, DDOG, MDB]
+    tickers: [MSFT, GOOGL, AMZN, META, ORCL, IBM, SNOW, DDOG, MDB, NBIS]
 
   - key: dc_infra
     name: โครงสร้างพื้นฐานดาต้าเซ็นเตอร์
