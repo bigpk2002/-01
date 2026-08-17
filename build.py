@@ -466,6 +466,12 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
             urgent.append(s)
             continue
 
+        # ราคาหลุดออกนอกช่วง 52 สัปดาห์ที่เก็บไว้ = ข้อมูลเก่าเกินไปเช่นกัน
+        h52, l52 = old.get("hi"), old.get("lo")
+        if pnow and h52 and l52 and not (l52 * 0.95 <= pnow <= h52 * 1.05):
+            urgent.append(s)
+            continue
+
         try:
             age = (today - datetime.fromisoformat(old["ts"]).date()).days
         except ValueError:
@@ -600,8 +606,10 @@ def refresh_ratios(f: dict, price: float) -> dict:
     # กรณีนี้ห้ามเอาอัตราส่วนเก่ามาคูณ เพราะกำไรต่อหุ้นก็เปลี่ยนไปด้วย
     # ให้ซ่อนอัตราส่วนราคาไว้ก่อน แล้วรอดึงใหม่รอบหน้า (ตัวเลขกิจการอื่นยังใช้ได้)
     if px0 and abs(ratio - 1) > SPLIT_GUARD:
+        # เก็บเฉพาะตัวเลขที่ไม่ผูกกับราคา ส่วนที่อิงราคาทิ้งหมด
+        # (ช่วง 52 สัปดาห์และราคาเป้าหมายก็อิงราคา จึงใช้ไม่ได้เช่นกัน)
         keep = ("roe", "de", "pm", "rg", "eg", "dy", "beta", "emp", "ind",
-                "rec", "na", "hi", "lo", "tgt")
+                "rec", "na", "dm")
         out = {k: v for k, v in f.items() if k in keep}
         out["fts"] = f.get("ts")
         out["adj"] = 0
@@ -628,9 +636,26 @@ def refresh_ratios(f: dict, price: float) -> dict:
         out["mc"] = round(f["mc"] * ratio, 0)
 
     # ตัดค่าที่คำนวณแล้วเพี้ยนออก (เช่นข้อมูลต้นทางผิดปกติ)
-    for k, hi in (("pe", 3000), ("fpe", 3000), ("pb", 500), ("ps", 500)):
-        if out.get(k) is not None and not (0 < out[k] < hi):
+    for k, cap in (("pe", 3000), ("fpe", 3000), ("pb", 500), ("ps", 500)):
+        if out.get(k) is not None and not (0 < out[k] < cap):
             out.pop(k, None)
+
+    # ราคาต้องอยู่ในช่วงสูงสุด/ต่ำสุด 52 สัปดาห์เสมอ ถ้าอยู่นอกช่วงแปลว่าข้อมูลเก่าเกินไป
+    # (นี่เป็นสัญญาณที่ตรวจง่ายและชัดที่สุดว่าข้อมูลพื้นฐานใช้ไม่ได้แล้ว)
+    hi52, lo52 = out.get("hi"), out.get("lo")
+    if hi52 and lo52:
+        if hi52 <= lo52 or price < lo52 * 0.95 or price > hi52 * 1.05:
+            out.pop("hi", None)
+            out.pop("lo", None)
+            out["recheck"] = 1
+
+    # ราคาเป้าหมายที่ห่างจากราคาปัจจุบันเกิน 3 เท่า ไม่สมเหตุสมผล
+    tgt = out.get("tgt")
+    if tgt and (tgt > price * 3 or tgt < price * 0.3):
+        out.pop("tgt", None)
+        out.pop("na", None)
+        out.pop("rec", None)
+        out["recheck"] = 1
 
     # ราคาต่างจากตอนดึงเกิน 0.5% ถือว่ามีการปรับที่ผู้ใช้ควรรู้
     out["adj"] = 1 if abs(ratio - 1) > 0.005 else 0
@@ -639,13 +664,15 @@ def refresh_ratios(f: dict, price: float) -> dict:
     return out
 
 
-def sector_medians(rows: list[dict]) -> dict:
+def sector_medians(rows: list[dict], demo: bool = False) -> dict:
     """ค่ากลางของแต่ละหมวดธุรกิจ ใช้เทียบว่าหุ้นตัวนี้แพงหรือถูกกว่าเพื่อนในหมวด"""
     from statistics import median
     buckets: dict[str, dict[str, list]] = {}
     for r in rows:
         f = r.get("f")
-        if not f or not r.get("g"):
+        # ข้อมูลจำลองที่ปนอยู่ในชุดข้อมูลจริง ต้องไม่นำมาคิดค่ากลาง
+        # (ยกเว้นตอนรันโหมดทดลองทั้งชุด ซึ่งทุกตัวเป็นข้อมูลจำลองอยู่แล้ว)
+        if not f or not r.get("g") or (f.get("dm") and not demo):
             continue
         b = buckets.setdefault(r["g"], {"pe": [], "pb": [], "ps": []})
         for k in ("pe", "pb", "ps"):
@@ -822,7 +849,7 @@ def main() -> int:
             "demo": bool(a.demo),
             "warnings": warnings,
             "fund_count": sum(1 for r in rows if "f" in r),
-            "sector_med": sector_medians(rows),
+            "sector_med": sector_medians(rows, a.demo),
         },
         "themes": [{k: t[k] for k in ("key", "name", "desc", "order", "tickers")}
                    for t in themes],
@@ -852,6 +879,14 @@ def main() -> int:
         biddy = [r["s"] for r in withf if (r["f"].get("dy") or 0) > 0.25]
         if biddy:
             checks.append(f"ปันผลสูงผิดปกติ {len(biddy)} ตัว: {', '.join(biddy[:6])}")
+        outr = [r["s"] for r in withf
+                if r["f"].get("hi") and r["f"].get("lo")
+                and not (r["f"]["lo"] * 0.95 <= r["p"] <= r["f"]["hi"] * 1.05)]
+        if outr:
+            checks.append(f"ราคาอยู่นอกช่วง 52 สัปดาห์ {len(outr)} ตัว: {', '.join(outr[:6])}")
+        rech = [r["s"] for r in withf if r["f"].get("recheck")]
+        if rech:
+            checks.append(f"รอดึงข้อมูลใหม่ {len(rech)} ตัว (ข้อมูลเดิมไม่สอดคล้องกับราคา)")
         bigpe = [r["s"] for r in withf if (r["f"].get("pe") or 0) > 1000]
         if bigpe:
             checks.append(f"P/E สูงผิดปกติ {len(bigpe)} ตัว: {', '.join(bigpe[:6])}")
