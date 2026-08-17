@@ -57,6 +57,7 @@
           <option value="dist">เรียง: ใกล้เส้นที่สุด</option>
           <option value="chg">เรียง: เปลี่ยนแปลงวันนี้</option>
           <option value="vol">เรียง: มูลค่าซื้อขาย</option>
+          <option value="pe">เรียง: P/E ถูกสุดก่อน</option>
           <option value="sym">เรียง: ชื่อย่อ A-Z</option>
         </select>
       </div>
@@ -85,7 +86,19 @@
         </div>
         <div class="seg lines" id="lines"><span class="lab">นับเฉพาะเส้น</span></div>
       </div>
-    </div>
+
+      <div class="line">
+        <div class="seg" id="peRange">
+          <span class="lab">ค่า P/E</span>
+          <button class="on" data-v="all">ทั้งหมด</button>
+          <button data-v="u20">ต่ำกว่า 20</button>
+          <button data-v="20-40">20–40</button>
+          <button data-v="40-70">40–70</button>
+          <button data-v="70-100">70–100</button>
+          <button data-v="o100">มากกว่า 100</button>
+          <button data-v="none">ไม่มีค่า</button>
+        </div>
+      </div>
 
     <div class="stats" id="stats"></div>
     <div class="resultbar">
