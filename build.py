@@ -211,6 +211,31 @@ def build_universe() -> dict[str, dict]:
 YAML_BOOL_BACK = {"True": "ON", "False": "NO"}
 
 
+def load_extra(universe: dict) -> list[str]:
+    """หุ้นที่ผู้ใช้เพิ่มเองใน themes.yml ใต้หัวข้อ extra
+
+    ใช้กับหุ้นที่ยังไม่อยู่ใน S&P 500 หรือ Nasdaq 100 เช่นหุ้นที่เพิ่งเข้าตลาด
+    ชื่อบริษัทกับหมวดธุรกิจจะเติมให้เองตอนดึงข้อมูลพื้นฐาน
+    """
+    path = os.path.join(HERE, "themes.yml")
+    with open(path, encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+
+    added = []
+    for x in (raw.get("extra") or []):
+        v = YAML_BOOL_BACK.get(str(x), str(x)) if isinstance(x, bool) else str(x)
+        v = norm(v)
+        if not v or v in universe:
+            continue
+        universe[v] = {"t": v, "n": "", "g": "", "sp": 0, "ndx": 0, "extra": 1}
+        added.append(v)
+
+    if added:
+        print(f"เพิ่มหุ้นที่ระบุเองใน themes.yml {len(added)} ตัว: {', '.join(added)}")
+        print()
+    return added
+
+
 def load_themes(universe: dict) -> tuple[list[dict], list[str]]:
     path = os.path.join(HERE, "themes.yml")
     with open(path, encoding="utf-8") as f:
@@ -369,6 +394,8 @@ FUND_FIELDS = {
     "rec":  "recommendationKey",
     "emp":  "fullTimeEmployees",
     "ind":  "industry",
+    "nm":   "shortName",              # ใช้เติมชื่อบริษัทให้หุ้นที่ผู้ใช้เพิ่มเอง
+    "sec":  "sector",                 # ใช้เติมหมวดธุรกิจให้หุ้นที่ผู้ใช้เพิ่มเอง
 }
 
 
@@ -659,8 +686,8 @@ def refresh_ratios(f: dict, price: float) -> dict:
 
     # ราคาต่างจากตอนดึงเกิน 0.5% ถือว่ามีการปรับที่ผู้ใช้ควรรู้
     out["adj"] = 1 if abs(ratio - 1) > 0.005 else 0
-    out.pop("px0", None)
-    out.pop("sh", None)
+    for k in ("px0", "sh", "nm", "sec"):
+        out.pop(k, None)
     return out
 
 
@@ -776,6 +803,7 @@ def main() -> int:
 
     t0 = time.time()
     universe = build_universe()
+    extra = load_extra(universe)
     themes, warnings = load_themes(universe)
 
     symbols = sorted(universe)
@@ -821,6 +849,17 @@ def main() -> int:
         except Exception as e:
             print(f"  ! ดึงข้อมูลพื้นฐานไม่สำเร็จ: {e} (ใช้ข้อมูลเดิมต่อ)")
     print()
+
+    # หุ้นที่เพิ่มเองไม่มีชื่อ/หมวดจากไฟล์ดัชนี เติมจากข้อมูลพื้นฐานที่ดึงมา
+    filled = 0
+    for r in rows:
+        f = fund.get(r["s"]) or {}
+        if not r.get("n") and f.get("nm"):
+            r["n"] = str(f["nm"]); filled += 1
+        if not r.get("g") and f.get("sec"):
+            r["g"] = to_thai_sector(str(f["sec"]))
+    if filled:
+        print(f"  เติมชื่อบริษัทให้หุ้นที่เพิ่มเอง {filled} ตัว")
 
     stale_adj = 0
     for r in rows:
