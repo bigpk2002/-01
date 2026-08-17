@@ -46,6 +46,7 @@ SLEEP_BETWEEN = 1.5
 FUND_PER_RUN = 180        # ดึงใหม่สูงสุดกี่ตัวต่อการรันหนึ่งครั้ง
 FUND_STALE_DAYS = 7       # ข้อมูลเก่ากว่ากี่วันถึงดึงใหม่
 FUND_SLEEP = 0.45         # พักระหว่างตัว (วินาที)
+SPLIT_GUARD = 0.35        # ราคาต่างจากตอนดึงเกินกี่เท่า ถือว่าข้อมูลใช้ไม่ได้แล้ว
 MAX_RETRY = 4
 BACKOFF_BASE = 8
 
@@ -358,6 +359,8 @@ FUND_FIELDS = {
     "eg":   "earningsGrowth",
     "dy":   "dividendYield",
     "eps":  "trailingEps",
+    "sh":   "sharesOutstanding",      # จำนวนหุ้น ใช้คำนวณมูลค่าบริษัทจากราคาล่าสุด
+    "px0":  "currentPrice",           # ราคา ณ ตอนที่ดึง ใช้ปรับอัตราส่วนให้ตรงกับราคาปัจจุบัน
     "beta": "beta",
     "hi":   "fiftyTwoWeekHigh",
     "lo":   "fiftyTwoWeekLow",
@@ -395,22 +398,73 @@ def _clean(v):
     return round(f, 4)
 
 
+def sanitize(row: dict) -> dict:
+    """แก้หน่วยและตัดค่าที่เป็นไปไม่ได้ทิ้ง
+
+    เหตุผลที่ต้องมี:
+      - Yahoo เปลี่ยนหน่วยของ dividendYield ไปมา บางช่วงส่งมาเป็นเศษส่วน (0.0066)
+        บางช่วงส่งเป็นเปอร์เซ็นต์แล้ว (0.66) ถ้าคูณ 100 ซ้ำจะกลายเป็น 66%
+      - บางครั้งส่งค่าประหลาดมา เช่น P/E ติดลบหรือหลักหมื่น ซึ่งใช้ไม่ได้
+    """
+    r = dict(row)
+
+    # ปันผล: ถ้าค่ามากกว่า 0.25 แปลว่าเป็นหน่วยเปอร์เซ็นต์อยู่แล้ว
+    # (ไม่มีหุ้นไหนจ่ายปันผล 25% ต่อปีในรูปเศษส่วน)
+    dy = r.get("dy")
+    if dy is not None:
+        if dy > 0.25:
+            dy = dy / 100.0
+        r["dy"] = dy if 0 <= dy < 0.5 else None
+
+    # อัตราส่วนราคาต้องเป็นบวกและอยู่ในช่วงที่เป็นไปได้
+    for k, hi in (("pe", 3000), ("fpe", 3000), ("pb", 500), ("ps", 500)):
+        v = r.get(k)
+        if v is not None and not (0 < v < hi):
+            r[k] = None
+
+    # อัตราส่วนที่เป็นเศษส่วน ไม่ควรเกิน ±10 เท่า
+    for k in ("roe", "pm", "rg", "eg"):
+        v = r.get(k)
+        if v is not None and abs(v) > 10:
+            r[k] = None
+
+    for k in ("mc", "sh", "px0", "hi", "lo", "tgt"):
+        v = r.get(k)
+        if v is not None and v <= 0:
+            r[k] = None
+
+    return {k: v for k, v in r.items() if v is not None}
+
+
 def fetch_fundamentals(symbols: list[str], existing: dict,
                        limit: int = FUND_PER_RUN, demo: bool = False,
                        prices: dict | None = None) -> dict:
     today = datetime.now().date()
-    todo = []
+    prices = prices or {}
+    todo, urgent = [], []
     for s in symbols:
         old = existing.get(s)
         if not old or not old.get("ts"):
             todo.append(s)
             continue
+
+        # ราคาห่างจากตอนดึงมากผิดปกติ = ข้อมูลใช้ไม่ได้แล้ว ต้องดึงใหม่ก่อนใคร
+        px0, pnow = old.get("px0"), prices.get(s)
+        if px0 and pnow and abs(pnow / px0 - 1) > SPLIT_GUARD:
+            urgent.append(s)
+            continue
+
         try:
             age = (today - datetime.fromisoformat(old["ts"]).date()).days
         except ValueError:
             age = 999
         if age >= FUND_STALE_DAYS:
             todo.append(s)
+
+    if urgent:
+        print(f"  ต้องดึงใหม่ด่วน {len(urgent)} ตัว "
+              f"(ราคาต่างจากตอนเก็บมาก อาจแตกพาร์)")
+    todo = urgent + todo
 
     fresh = len(symbols) - len(todo)
     if not todo:
@@ -428,18 +482,23 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
 
     if demo:
         rng = np.random.default_rng(7)
-        prices = prices or {}
         for s in todo:
             px = prices.get(s, 100.0)
             lo = px * rng.uniform(0.55, 0.92)      # จุดต่ำสุดต้องต่ำกว่าราคาปัจจุบัน
             hi = px * rng.uniform(1.03, 1.55)      # จุดสูงสุดต้องสูงกว่า
+            eps_v = px / rng.uniform(12, 60)
+            sh_v = rng.uniform(2e8, 1.6e10)
             existing[s] = {
-                "mc": float(rng.uniform(2e9, 3.5e12)), "pe": float(rng.uniform(8, 70)),
+                "mc": float(sh_v * px),
+                "pe": float(px / eps_v),          # ให้สอดคล้องกันเหมือนข้อมูลจริง
                 "fpe": float(rng.uniform(7, 50)), "pb": float(rng.uniform(0.8, 22)),
                 "ps": float(rng.uniform(0.5, 18)), "roe": float(rng.uniform(-.1, .6)),
                 "de": float(rng.uniform(5, 220)), "pm": float(rng.uniform(-.05, .45)),
                 "rg": float(rng.uniform(-.15, .6)), "eg": float(rng.uniform(-.3, .9)),
-                "dy": float(rng.uniform(0, .05)), "eps": float(rng.uniform(-1, 25)),
+                "dy": float(rng.uniform(0, .05)),
+                "eps": float(eps_v),
+                "sh": float(sh_v),
+                "px0": float(px * rng.uniform(0.95, 1.05)),
                 "beta": float(rng.uniform(.4, 2.2)),
                 "hi": float(hi), "lo": float(lo),
                 "tgt": float(px * rng.uniform(0.85, 1.35)), "na": int(rng.integers(3, 45)),
@@ -469,9 +528,18 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
                 v = _clean(info.get(src))
                 if v is not None:
                     row[key] = v
-            if row:
-                row["ts"] = today.isoformat()
-                existing[sym] = row
+
+            row = sanitize(row)
+
+            # ต้องได้ข้อมูลแกนหลักมาอย่างน้อยหนึ่งอย่าง ถึงจะถือว่าดึงสำเร็จ
+            # ถ้าได้มาแค่ชิ้นสองชิ้น แปลว่า Yahoo ตอบไม่ครบ (มักเกิดตอนโดนจำกัดการเรียก)
+            # กรณีนั้นห้ามบันทึกทับ ไม่งั้นข้อมูลดีที่มีอยู่จะหายและไม่ถูกดึงใหม่อีก 7 วัน
+            if row.get("mc") or row.get("px0"):
+                old_row = existing.get(sym) or {}
+                merged = {k: v for k, v in old_row.items() if k != "ts"}
+                merged.update(row)          # ค่าใหม่ทับค่าเก่า ส่วนที่ขาดใช้ของเดิมต่อ
+                merged["ts"] = today.isoformat()
+                existing[sym] = merged
                 ok += 1
             else:
                 errs += 1
@@ -492,6 +560,68 @@ def save_fundamentals(rows: dict) -> None:
     with open(FUND_PATH, "w", encoding="utf-8") as f:
         json.dump({"updated": datetime.now().isoformat(timespec="seconds"),
                    "rows": rows}, f, ensure_ascii=False, separators=(",", ":"))
+
+
+def refresh_ratios(f: dict, price: float) -> dict:
+    """ปรับอัตราส่วนราคาให้ตรงกับราคาปิดล่าสุดที่เว็บแสดง
+
+    ปัญหาที่แก้: ข้อมูลพื้นฐานเก็บไว้ใช้ได้ 7 วัน แต่ราคาอัปเดตทุกวัน
+    ค่า P/E ที่ Yahoo ส่งมาคิดจากราคา ณ วันที่ดึง ถ้าราคาขยับไป 8%
+    ตัวเลข P/E ที่แสดงคู่กับราคาวันนี้จะไม่ตรงกันทันที
+
+    วิธีแก้: คำนวณใหม่จากราคาปัจจุบัน
+      P/E  = ราคาปัจจุบัน ÷ กำไรต่อหุ้น   (กำไรต่อหุ้นเปลี่ยนแค่ไตรมาสละครั้ง)
+      P/BV, P/S = ค่าเดิม × (ราคาปัจจุบัน ÷ ราคาตอนดึง)
+      มูลค่าบริษัท = จำนวนหุ้น × ราคาปัจจุบัน
+    ทำให้ทุกตัวเลขบนหน้าจอสอดคล้องกันเสมอ ไม่ว่าข้อมูลจะเก็บไว้กี่วัน
+    """
+    out = {k: v for k, v in f.items() if k != "ts"}
+    out["fts"] = f.get("ts")           # วันที่ดึงข้อมูลพื้นฐาน แสดงให้ผู้ใช้เห็น
+
+    px0 = f.get("px0")
+    ratio = (price / px0) if (px0 and px0 > 0) else 1.0
+
+    # ราคาต่างจากตอนดึงเกิน 35% มักแปลว่าหุ้นแตกพาร์ หรือข้อมูลเก่าเกินไป
+    # กรณีนี้ห้ามเอาอัตราส่วนเก่ามาคูณ เพราะกำไรต่อหุ้นก็เปลี่ยนไปด้วย
+    # ให้ซ่อนอัตราส่วนราคาไว้ก่อน แล้วรอดึงใหม่รอบหน้า (ตัวเลขกิจการอื่นยังใช้ได้)
+    if px0 and abs(ratio - 1) > SPLIT_GUARD:
+        keep = ("roe", "de", "pm", "rg", "eg", "dy", "beta", "emp", "ind",
+                "rec", "na", "hi", "lo", "tgt")
+        out = {k: v for k, v in f.items() if k in keep}
+        out["fts"] = f.get("ts")
+        out["adj"] = 0
+        out["recheck"] = 1
+        return out
+
+    # คำนวณใหม่เสมอ ไม่ว่าราคาจะขยับหรือไม่
+    # เพื่อรับประกันว่า P/E ที่แสดง = ราคาที่แสดง ÷ กำไรต่อหุ้นที่แสดง เสมอ
+    # ผู้ใช้กดเครื่องคิดเลขตามได้ตรงทุกครั้ง
+    eps = f.get("eps")
+    if eps and eps > 0:
+        out["pe"] = round(price / eps, 4)
+    elif f.get("pe"):
+        out["pe"] = round(f["pe"] * ratio, 4)
+
+    for k in ("fpe", "pb", "ps"):
+        if f.get(k):
+            out[k] = round(f[k] * ratio, 4)
+
+    sh = f.get("sh")
+    if sh and sh > 0:
+        out["mc"] = round(sh * price, 0)          # จำนวนหุ้น x ราคา = มูลค่าจริง
+    elif f.get("mc"):
+        out["mc"] = round(f["mc"] * ratio, 0)
+
+    # ตัดค่าที่คำนวณแล้วเพี้ยนออก (เช่นข้อมูลต้นทางผิดปกติ)
+    for k, hi in (("pe", 3000), ("fpe", 3000), ("pb", 500), ("ps", 500)):
+        if out.get(k) is not None and not (0 < out[k] < hi):
+            out.pop(k, None)
+
+    # ราคาต่างจากตอนดึงเกิน 0.5% ถือว่ามีการปรับที่ผู้ใช้ควรรู้
+    out["adj"] = 1 if abs(ratio - 1) > 0.005 else 0
+    out.pop("px0", None)
+    out.pop("sh", None)
+    return out
 
 
 def sector_medians(rows: list[dict]) -> dict:
@@ -650,10 +780,15 @@ def main() -> int:
             print(f"  ! ดึงข้อมูลพื้นฐานไม่สำเร็จ: {e} (ใช้ข้อมูลเดิมต่อ)")
     print()
 
+    stale_adj = 0
     for r in rows:
         f = fund.get(r["s"])
         if f:
-            r["f"] = {k: v for k, v in f.items() if k != "ts"}
+            r["f"] = refresh_ratios(f, r["p"])
+            if r["f"].get("adj"):
+                stale_adj += 1
+    if stale_adj:
+        print(f"  ปรับอัตราส่วนให้ตรงกับราคาล่าสุด {stale_adj} ตัว")
 
     have = {r["s"] for r in rows}
     for t in themes:
@@ -689,6 +824,33 @@ def main() -> int:
     print(f"  มีข้อมูลพื้นฐาน {payload['meta']['fund_count']} ตัว "
           f"· ค่ากลางรายหมวด {len(payload['meta']['sector_med'])} หมวด")
     print(f"  ข้อมูลปิดตลาดวันที่ {payload['meta']['date']}")
+
+    # ตรวจความสมเหตุสมผลของข้อมูลพื้นฐาน แล้วรายงานในล็อก
+    checks = []
+    withf = [r for r in rows if "f" in r]
+    if withf:
+        mism = [r["s"] for r in withf
+                if r["f"].get("eps", 0) > 0 and r["f"].get("pe")
+                and abs(r["f"]["pe"] - r["p"] / r["f"]["eps"]) > 0.05]
+        if mism:
+            checks.append(f"P/E ไม่ตรงกับ ราคา/EPS {len(mism)} ตัว: {', '.join(mism[:6])}")
+        biddy = [r["s"] for r in withf if (r["f"].get("dy") or 0) > 0.25]
+        if biddy:
+            checks.append(f"ปันผลสูงผิดปกติ {len(biddy)} ตัว: {', '.join(biddy[:6])}")
+        bigpe = [r["s"] for r in withf if (r["f"].get("pe") or 0) > 1000]
+        if bigpe:
+            checks.append(f"P/E สูงผิดปกติ {len(bigpe)} ตัว: {', '.join(bigpe[:6])}")
+        oldf = [r["s"] for r in withf
+                if r["f"].get("fts") and
+                (datetime.now().date() - datetime.fromisoformat(r["f"]["fts"]).date()).days > 10]
+        if oldf:
+            checks.append(f"ข้อมูลพื้นฐานเก่ากว่า 10 วัน {len(oldf)} ตัว")
+    if checks:
+        print("\n  ข้อควรตรวจสอบ:")
+        for c in checks:
+            print(f"    ! {c}")
+    else:
+        print("  ตรวจความสมเหตุสมผลของข้อมูลพื้นฐาน: ผ่าน")
 
     for tol in (1.0, 1.5, 3.0):
         n = sum(1 for r in rows if "d" in r and min(abs(x) for x in r["d"]) <= tol)
