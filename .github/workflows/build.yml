@@ -1,9 +1,12 @@
 name: อัปเดตข้อมูลหุ้น
 
 on:
-  # 21:30 UTC จันทร์-ศุกร์ ≈ 1 ชม.หลังตลาดสหรัฐปิด (ประมาณ 04:30 เช้าเวลาไทย)
+  # 01:00 UTC = 08:00 เช้าเวลาไทย
+  # ใส่ 2-6 (อังคาร-เสาร์ ตามเวลา UTC) เพราะตลาดสหรัฐปิดคืนก่อนหน้า
+  #   เช้าวันอังคารไทย = ได้ข้อมูลของวันจันทร์
+  #   เช้าวันเสาร์ไทย  = ได้ข้อมูลของวันศุกร์
   schedule:
-    - cron: "30 21 * * 1-5"
+    - cron: "0 1 * * 2-6"
   # กดรันเองได้จากแท็บ Actions
   workflow_dispatch:
     inputs:
@@ -61,6 +64,13 @@ jobs:
             git pull --rebase --autostash || true
             git push
           fi
+
+      - name: แจ้งเตือน Telegram
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python notify.py
+        # ถ้ายังไม่ได้ตั้ง Secret สคริปต์จะข้ามไปเงียบ ๆ ไม่ทำให้ workflow ล้ม
 
       - name: เก็บไฟล์ไว้ดาวน์โหลด
         uses: actions/upload-artifact@v4
