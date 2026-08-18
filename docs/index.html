@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#070b13">
 <title>AI Map — แผนที่หุ้น AI และตัวหาเส้น EMA</title>
 <meta name="description" content="แผนที่หุ้น AI ตามธีมธุรกิจ และตัวหาหุ้นที่ราคาใกล้เส้น EMA จาก S&P 500 + Nasdaq 100">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 <div class="wrap">
@@ -14,6 +14,7 @@
   <nav class="tabs">
     <button class="tab on" data-page="map">AI Map</button>
     <button class="tab" data-page="ema">หาเส้น EMA</button>
+    <button class="tab" data-page="top">หุ้นโตแรง</button>
     <span class="badge" id="demoBadge" hidden>ข้อมูลจำลอง</span>
   </nav>
 
@@ -37,6 +38,15 @@
           <button class="on" data-v="all">ทั้งหมด</button>
           <button data-v="up">เฉพาะตัวบวก</button>
           <button data-v="down">เฉพาะตัวลบ</button>
+        </div>
+      </div>
+      <div class="line">
+        <div class="seg" id="topN">
+          <span class="lab">ตัวที่วิ่งแรงสุดต่อกลุ่ม</span>
+          <button data-v="5">5</button>
+          <button class="on" data-v="10">10</button>
+          <button data-v="20">20</button>
+          <button data-v="0">ทั้งหมด</button>
         </div>
       </div>
     </div>
@@ -109,6 +119,47 @@
     <p class="empty" id="emptyEma" hidden>ไม่มีหุ้นตรงเงื่อนไข — ลองเพิ่มระยะ หรือลดจำนวนเส้นที่ต้องชน</p>
   </section>
 
+  <!-- ─────────── หน้าที่ 3: หุ้นโตแรง ─────────── -->
+  <section id="pageTop" hidden>
+    <div class="panel">
+      <div class="line">
+        <div class="seg" id="topPeriod">
+          <span class="lab">ช่วงเวลา</span>
+          <button data-v="1w">1 สัปดาห์</button>
+          <button class="on" data-v="1m">1 เดือน</button>
+          <button data-v="3m">3 เดือน</button>
+          <button data-v="ytd">ต้นปี</button>
+          <button data-v="1y">1 ปี</button>
+        </div>
+        <div class="seg" id="topDir">
+          <span class="lab">ทิศทาง</span>
+          <button class="on" data-v="up">โตแรงสุด</button>
+          <button data-v="down">ลงแรงสุด</button>
+        </div>
+      </div>
+      <div class="line">
+        <select id="topSector"><option value="">ทุกหมวดธุรกิจ</option></select>
+        <select id="topTheme"><option value="">ทุกธีม AI</option></select>
+        <div class="seg" id="topCount">
+          <span class="lab">จำนวน</span>
+          <button class="on" data-v="10">10</button>
+          <button data-v="25">25</button>
+          <button data-v="50">50</button>
+        </div>
+      </div>
+      <div class="line">
+        <div class="seg" id="topCap">
+          <span class="lab">ขนาดบริษัท</span>
+          <button class="on" data-v="all">ทั้งหมด</button>
+          <button data-v="big">ใหญ่ (เกิน 1 หมื่นล้าน)</button>
+          <button data-v="mid">กลางลงมา</button>
+        </div>
+      </div>
+    </div>
+    <p class="hint" id="topNote"></p>
+    <div class="toplist" id="toplist"></div>
+  </section>
+
   <!-- ─────────── หน้าต่างรายละเอียดหุ้น ─────────── -->
   <div class="modal" id="modal" hidden>
     <div class="sheet">
@@ -122,6 +173,11 @@
       <p>ค่ากลางของกลุ่มใช้ <b>median</b> ไม่ใช่ค่าเฉลี่ย เพราะหุ้นตัวใหญ่ที่วิ่งแรงมากจะดึงค่าเฉลี่ยเพี้ยนจนอ่านภาพรวมกลุ่มไม่ได้</p>
       <p>หุ้นที่มีประวัติราคาไม่ครบช่วงเวลาที่เลือกจะไม่ถูกนำมาแสดง</p>
     </div>
+    <div id="footTop" hidden>
+      <p><b>วิธีอ่าน</b> — จัดอันดับจาก % เปลี่ยนแปลงของช่วงเวลาที่เลือก คำนวณจากราคาปิดที่ปรับปันผลและการแตกพาร์แล้ว</p>
+      <p>หุ้นที่มีประวัติราคาไม่ครบช่วงเวลาที่เลือกจะไม่ถูกจัดอันดับ (เช่นเพิ่งเข้าตลาด 3 เดือนแต่เลือกดู 1 ปี)</p>
+      <p>ตัวที่ขึ้นแรงมากมักผันผวนสูงตามไปด้วย ควรดูค่า P/E และขนาดบริษัทประกอบ</p>
+    </div>
     <div id="footEma" hidden>
       <p><b>วิธีอ่าน</b> — ช่องเลข 6 ช่องคือเส้น EMA ทั้ง 6 เส้น ตัวเลขคือระยะห่างของราคาจากเส้นนั้นเป็น %
         (บวก = ราคาอยู่เหนือเส้น) <span class="hl">ช่องไฮไลต์คือเส้นที่ราคากำลังชนอยู่</span></p>
@@ -133,6 +189,6 @@
   </footer>
 </div>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
