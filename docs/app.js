@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "5";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "6";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PERIOD_TH = { "1d": "1 วัน", "1w": "1 สัปดาห์", "1m": "1 เดือน",
@@ -15,9 +15,11 @@
 
   var st = {
     page: "map",
-    period: "1m", mapShow: "all",
+    period: "1m", mapShow: "all", topN: 10, expanded: {},
     q: "", sector: "", theme: "", sort: "score",
-    tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: []
+    tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: [],
+    topPeriod: "1m", topDir: "up", topSector: "", topTheme: "",
+    topCount: 10, topCap: "all"
   };
 
   var byTicker = {};
@@ -109,6 +111,17 @@
         '<option value="' + esc(t.key) + '">' + esc(t.name) + "</option>");
     });
 
+    ["topSector", "topTheme"].forEach(function (id) {
+      var el = $(id);
+      var src = id === "topSector" ? (D.meta.sectors || []) : (D.themes || []);
+      src.forEach(function (x) {
+        var v = id === "topSector" ? x : x.key;
+        var t2 = id === "topSector" ? x : x.name;
+        el.insertAdjacentHTML("beforeend",
+          '<option value="' + esc(v) + '">' + esc(t2) + "</option>");
+      });
+    });
+
     var box = $("lines");
     EMAS.forEach(function (p) {
       var b = document.createElement("button");
@@ -128,6 +141,7 @@
     wire();
     renderMap();
     renderEma();
+    renderTop();
   }
 
   /* ───────────────── หน้าที่ 1: AI Map ───────────────── */
@@ -183,6 +197,19 @@
              : st.mapShow === "up" ? m.pct > 0 : m.pct < 0;
       });
 
+      // เลือกตัวที่ "วิ่งแรง" = ขนาดการเปลี่ยนแปลงมากสุด ไม่ว่าขึ้นหรือลง
+      // แล้วค่อยเรียงกลับจากบวกมากสุดลงไปหาลบมากสุดตอนแสดง
+      var limit = st.expanded[g.t.key] ? 0 : st.topN;
+      var hidden = 0;
+      if (limit > 0 && show.length > limit) {
+        var byMag = show.slice().sort(function (a, b) {
+          return Math.abs(b.pct) - Math.abs(a.pct);
+        }).slice(0, limit);
+        hidden = show.length - byMag.length;
+        byMag.sort(function (a, b) { return b.pct - a.pct; });
+        show = byMag;
+      }
+
       var cards = show.map(function (m) {
         return '<button class="card ' + cls(m.pct) + '" data-tk="' + esc(m.r.s) + '">' +
           '<div class="row1"><span class="tk">' + esc(m.r.s) + '</span>' +
@@ -191,16 +218,27 @@
             '<span class="px">$' + m.r.p + '</span></div></button>';
       }).join("");
 
+      var shownNote = hidden > 0
+        ? '<span class="of">แสดง ' + show.length + " แรงสุด จาก " + g.total + " ตัว</span>"
+        : '<span class="of">จาก ' + g.total + " ตัว</span>";
+
       return '<section class="group ' + (g.med > 0 ? "pos" : g.med < 0 ? "neg" : "") + '">' +
         '<div class="ghead"><div class="gtitle"><h2>' + esc(g.t.name) + '</h2>' +
           (g.t.desc ? '<span class="gdesc">' + esc(g.t.desc) + "</span>" : "") + '</div>' +
         '<div class="gstats"><span class="tally">' +
           '<b class="up">▲ ' + g.up + '</b> / <b class="down">▼ ' + g.down + '</b>' +
-          ' <span class="of">จาก ' + g.total + ' ตัว</span></span>' +
+          ' ' + shownNote + '</span>' +
         '<span class="median ' + cls(g.med) + '">ค่ากลาง ' + sign(g.med) + '%</span>' +
         '</div></div>' +
         (cards ? '<div class="cards">' + cards + "</div>"
                : '<p class="none">ไม่มีตัวที่ตรงกับตัวกรองในกลุ่มนี้</p>') +
+        (hidden > 0
+          ? '<button class="more" data-more="' + esc(g.t.key) + '">ดูอีก ' +
+            hidden + " ตัวในกลุ่มนี้</button>"
+          : (st.expanded[g.t.key] && st.topN > 0
+              ? '<button class="more" data-more="' + esc(g.t.key) +
+                '">ย่อกลับเหลือ ' + st.topN + " ตัวที่แรงสุด</button>"
+              : "")) +
         "</section>";
     }).join("") || '<p class="empty">ไม่มีข้อมูลกลุ่ม — ตรวจไฟล์ themes.yml</p>';
   }
@@ -345,6 +383,65 @@
           '<span>ชน ' + ev.near.length + ' เส้น</span>' +
           '<span>P/E ' + (pe == null ? "—" : num(pe, 1)) + "</span>" +
           (r.v ? "<span>" + fmtM(r.v) + "</span>" : "") + "</div></button>";
+    }).join("");
+  }
+
+  /* ───────────────── หน้าที่ 3: หุ้นโตแรง ───────────────── */
+
+  function renderTop() {
+    if (!D) return;
+    var pi = PERIODS.indexOf(st.topPeriod);
+    var themeSet = null;
+    if (st.topTheme) {
+      var t = (D.themes || []).filter(function (x) { return x.key === st.topTheme; })[0];
+      themeSet = t ? t.tickers : [];
+    }
+
+    var list = [];
+    D.rows.forEach(function (r) {
+      var pct = r.r[pi];
+      if (pct === null || pct === undefined) return;   // ประวัติไม่ครบช่วงนี้
+      if (st.topSector && r.g !== st.topSector) return;
+      if (themeSet && themeSet.indexOf(r.s) < 0) return;
+      var mc = (r.f || {}).mc;
+      if (st.topCap === "big" && !(mc && mc >= 10e9)) return;
+      if (st.topCap === "mid" && (mc == null || mc >= 10e9)) return;
+      list.push({ r: r, pct: pct });
+    });
+
+    var eligible = list.length;
+    list.sort(function (a, b) {
+      return st.topDir === "up" ? b.pct - a.pct : a.pct - b.pct;
+    });
+    list = list.slice(0, st.topCount);
+
+    $("topNote").innerHTML =
+      "จัดอันดับจากหุ้น <b>" + eligible + "</b> ตัวที่มีประวัติราคาครบช่วง " +
+      PERIOD_TH[st.topPeriod] +
+      (st.topSector || st.topTheme || st.topCap !== "all" ? " (ตามตัวกรองที่เลือก)" : "") +
+      " · คลิกแถวเพื่อดูรายละเอียด";
+
+    if (!list.length) {
+      $("toplist").innerHTML = '<p class="empty">ไม่มีหุ้นตรงเงื่อนไข</p>';
+      return;
+    }
+
+    $("toplist").innerHTML = list.map(function (o, i) {
+      var r = o.r, f = r.f || {};
+      var c = o.pct > 0 ? "up" : o.pct < 0 ? "down" : "";
+      var col = c === "up" ? "var(--up)" : c === "down" ? "var(--down)" : "var(--faint)";
+      return '<button class="toprow ' + c + '" data-tk="' + esc(r.s) + '">' +
+        '<span class="rank">' + (i + 1) + "</span>" +
+        '<span class="tinfo"><b>' + esc(r.s) + "</b>" +
+          '<span class="tnm">' + esc(r.n) + "</span></span>" +
+        '<svg class="tspark" viewBox="0 0 100 28" preserveAspectRatio="none">' +
+          '<path d="' + sparkPath(r.h) + '" fill="none" stroke="' + col +
+          '" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>' +
+        '<span class="tcell tsec">' + esc(r.g || "-") + "</span>" +
+        '<span class="tcell">$' + r.p + "</span>" +
+        '<span class="tcell tpe">P/E ' + (f.pe == null ? "—" : num(f.pe, 1)) + "</span>" +
+        '<span class="tcell tmc">' + (f.mc ? money(f.mc) : "—") + "</span>" +
+        '<span class="tpct">' + sign(o.pct) + "%</span></button>";
     }).join("");
   }
 
@@ -579,22 +676,38 @@
         document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("on"); });
         t.classList.add("on");
         st.page = t.dataset.page;
-        var isMap = st.page === "map";
-        $("pageMap").hidden = !isMap;
-        $("pageEma").hidden = isMap;
-        $("footMap").hidden = !isMap;
-        $("footEma").hidden = isMap;
-        $("pageTitle").textContent = isMap ? "AI Map" : "หุ้นที่ราคาใกล้เส้น EMA";
+        var TITLE = { map: "AI Map", ema: "หุ้นที่ราคาใกล้เส้น EMA", top: "หุ้นโตแรง" };
+        ["map", "ema", "top"].forEach(function (k) {
+          var pg = $("page" + k.charAt(0).toUpperCase() + k.slice(1));
+          var ft = $("foot" + k.charAt(0).toUpperCase() + k.slice(1));
+          if (pg) pg.hidden = (k !== st.page);
+          if (ft) ft.hidden = (k !== st.page);
+        });
+        $("pageTitle").textContent = TITLE[st.page] || "AI Map";
         window.scrollTo(0, 0);
       });
     });
 
     seg("period", "period", null, renderMap);
     seg("mapShow", "mapShow", null, renderMap);
+    seg("topN", "topN", Number, function () {
+      st.expanded = {};                     // เปลี่ยนจำนวนแล้วย่อทุกกล่องกลับ
+      renderMap();
+    });
     seg("minNear", "minNear", Number, renderEma);
     seg("trend", "trend", null, renderEma);
     seg("side", "side", null, renderEma);
     seg("peRange", "pe", null, renderEma);
+    seg("topPeriod", "topPeriod", null, renderTop);
+    seg("topDir", "topDir", null, renderTop);
+    seg("topCount", "topCount", Number, renderTop);
+    seg("topCap", "topCap", null, renderTop);
+    $("topSector").addEventListener("change", function (e) {
+      st.topSector = e.target.value; renderTop();
+    });
+    $("topTheme").addEventListener("change", function (e) {
+      st.topTheme = e.target.value; renderTop();
+    });
 
     var timer;
     function later(fn) { clearTimeout(timer); timer = setTimeout(fn, 50); }
@@ -612,6 +725,13 @@
     });
 
     document.addEventListener("click", function (e) {
+      var m = e.target.closest("[data-more]");
+      if (m) {
+        var k = m.dataset.more;
+        st.expanded[k] = !st.expanded[k];
+        renderMap();
+        return;
+      }
       var c = e.target.closest("[data-tk]");
       if (c) openStock(c.dataset.tk);
     });
