@@ -243,11 +243,14 @@ def load_themes(universe: dict) -> tuple[list[dict], list[str]]:
     if not cfg:
         sys.exit("ไฟล์ themes.yml ว่างเปล่า")
 
-    themes, warnings = [], []
+    themes, warnings, seen_keys = [], [], set()
     for i, t in enumerate(cfg, 1):
         key, name = str(t.get("key", "")).strip(), str(t.get("name", "")).strip()
         if not key or not name:
             sys.exit(f"ธีมลำดับที่ {i} ขาด key หรือ name")
+        if key in seen_keys:
+            sys.exit(f"ชื่อคีย์ธีมซ้ำกัน: {key} — แก้ไฟล์ themes.yml ให้ไม่ซ้ำก่อน")
+        seen_keys.add(key)
 
         tickers, missing, seen = [], [], set()
         for x in (t.get("tickers") or []):
@@ -550,6 +553,8 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
                 "tgt": float(px * rng.uniform(0.85, 1.35)), "na": int(rng.integers(3, 45)),
                 "rec": str(rng.choice(["buy", "hold", "strong_buy", "underperform"])),
                 "emp": int(rng.integers(500, 200000)), "ind": "ตัวอย่าง",
+                "nm": s + " Inc.",
+                "sec": str(rng.choice(list(SECTOR_TH))),
                 "dm": 1,                      # ธงบอกว่าเป็นข้อมูลจำลอง
                 "ts": today.isoformat(),
             }
@@ -763,6 +768,7 @@ def analyse(info: dict, df: pd.DataFrame) -> dict | None:
 
     row = {**{k: info[k] for k in ("n", "g")},
            "s": info["t"], "p": round(price, 2),
+           **({"x": 1} if info.get("extra") else {}),   # หุ้นนอกดัชนี
            "r": [rets[p] for p in PERIODS],
            "h": spark(close)}
 
@@ -834,6 +840,15 @@ def main() -> int:
 
     rows.sort(key=lambda r: r["s"])
 
+    # หุ้นที่ผู้ใช้เพิ่มเองแต่ดึงไม่สำเร็จ ต้องบอกให้รู้ ไม่ปล่อยหายเงียบ
+    got = {r["s"] for r in rows}
+    lost = [t for t in extra if t not in got]
+    if lost:
+        print(f"หุ้นที่เพิ่มเองแต่ดึงข้อมูลไม่ได้ {len(lost)} ตัว: {', '.join(lost)}")
+        print("  (อาจเปลี่ยนชื่อย่อ ถูกถอนจากตลาด หรือประวัติราคาสั้นเกินไป)")
+        print("  แก้ได้โดยลบออกจากรายการ extra ใน themes.yml")
+        print()
+
     # ── ข้อมูลพื้นฐานบริษัท ──
     if a.skip_fundamentals:
         print("ข้ามการดึงข้อมูลพื้นฐานตามที่สั่ง")
@@ -851,15 +866,23 @@ def main() -> int:
     print()
 
     # หุ้นที่เพิ่มเองไม่มีชื่อ/หมวดจากไฟล์ดัชนี เติมจากข้อมูลพื้นฐานที่ดึงมา
-    filled = 0
+    filled, pending = 0, 0
     for r in rows:
         f = fund.get(r["s"]) or {}
-        if not r.get("n") and f.get("nm"):
-            r["n"] = str(f["nm"]); filled += 1
+        if not r.get("n"):
+            if f.get("nm"):
+                r["n"] = str(f["nm"])
+                filled += 1
+            else:
+                # ยังไม่ถึงคิวดึงข้อมูลพื้นฐาน ใช้ชื่อย่อไปก่อน ดีกว่าปล่อยว่าง
+                r["n"] = r["s"]
+                pending += 1
         if not r.get("g") and f.get("sec"):
             r["g"] = to_thai_sector(str(f["sec"]))
     if filled:
         print(f"  เติมชื่อบริษัทให้หุ้นที่เพิ่มเอง {filled} ตัว")
+    if pending:
+        print(f"  ยังรอชื่อบริษัทอีก {pending} ตัว (จะเติมให้เมื่อดึงข้อมูลพื้นฐานถึงคิว)")
 
     stale_adj = 0
     for r in rows:
