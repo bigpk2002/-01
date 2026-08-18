@@ -2,23 +2,46 @@
 #  แผนที่ธีมธุรกิจ AI  →  หุ้น
 #
 #  ไฟล์นี้คุณแก้เองได้เลย ไม่ต้องแตะโค้ด
-#  แก้เสร็จรัน  python update.py --themes-only  เพื่ออัปเดตฐานข้อมูล
+#  แก้เสร็จไปกด Run workflow บน GitHub เว็บจะอัปเดตตาม
 #
 #  กติกา
-#   - หุ้นตัวเดียวใส่ได้หลายธีม (เช่น MSFT อยู่ทั้ง cloud และ software)
-#   - ใส่ได้เฉพาะหุ้นที่อยู่ใน S&P 500 หรือ Nasdaq 100
-#     ถ้าใส่ตัวที่ไม่อยู่ในดัชนี โปรแกรมจะเตือนตอนรัน ไม่ปล่อยผ่านเงียบ ๆ
-#   - order = ลำดับสำรอง ใช้เฉพาะตอนที่ค่า median เท่ากัน
-#     ปกติหน้าเว็บจะเรียงกล่องตาม median ของกลุ่มอัตโนมัติ
+#   - หุ้นตัวเดียวใส่ได้หลายธีม (เช่น MSFT อยู่ทั้ง cloud และ ai_software)
+#   - ชื่อคีย์ (key) ห้ามซ้ำกัน
+#   - หุ้นที่ไม่อยู่ใน S&P 500 หรือ Nasdaq 100 ต้องใส่ในรายการ extra ก่อน
+#   - ticker ที่เป็น ON NO Y N OFF ให้ใส่เครื่องหมายคำพูด เช่น "S"
+#     เพราะ YAML จะตีความเป็นค่า true/false
 # ─────────────────────────────────────────────────────────────
 
 # ─────────────────────────────────────────────────────────────
 #  หุ้นที่อยากติดตามเพิ่ม นอกเหนือจาก S&P 500 และ Nasdaq 100
-#  ใส่ชื่อย่อลงในรายการนี้ ระบบจะดึงราคาและข้อมูลพื้นฐานให้เอง
-#  ชื่อบริษัทกับหมวดธุรกิจเติมให้อัตโนมัติ ไม่ต้องกรอก
-#  หุ้นที่เพิ่มที่นี่ ถ้าอยากให้โผล่ในหน้า AI Map ต้องใส่ในธีมด้านล่างด้วย
+#
+#  กลุ่มนี้ส่วนใหญ่เป็นบริษัทขนาดเล็กที่ราคาแกว่งแรงกว่าหุ้นใหญ่หลายเท่า
+#  บางตัวยังไม่มีกำไร จึงไม่มีค่า P/E ให้ดู
+#  ตัวไหนไม่สนใจลบออกได้ อยากเพิ่มก็ใส่ชื่อย่อต่อท้าย
+#  ถ้าตัวไหนดึงข้อมูลไม่ได้ ระบบจะรายงานชื่อไว้ในล็อกของ Actions
 # ─────────────────────────────────────────────────────────────
-extra: [NBIS, SNDK]
+extra: [
+  # อวกาศ จรวด ดาวเทียม โดรน
+  RKLB, ASTS, LUNR, RDW, PL, AVAV, KTOS, BWXT,
+
+  # ชิป AI และอุปกรณ์เชื่อมต่อความเร็วสูง
+  ALAB, CRDO, LSCC, AMBA, SITM, SNDK, WOLF, AEIS,
+
+  # ดาต้าเซ็นเตอร์ AI รายใหม่ และผู้ให้เช่าพลัง GPU
+  CRWV, NBIS, IREN, CORZ, APLD, WULF, CIFR, MOD, POWL,
+
+  # นิวเคลียร์ขนาดเล็กและพลังงานป้อนดาต้าเซ็นเตอร์
+  OKLO, SMR, BE,
+
+  # ซอฟต์แวร์และบริการ AI
+  BBAI, SOUN, TEM, PATH, "S", AI, RXRX, INOD,
+
+  # คอมพิวเตอร์ควอนตัม
+  IONQ, RGTI, QBTS, QUBT,
+
+  # หุ่นยนต์และยานยนต์อัตโนมัติ
+  SYM, SERV, OUST, ACHR, JOBY,
+]
 
 themes:
 
@@ -27,62 +50,78 @@ themes:
     description: ผู้ออกแบบและผลิตชิปสำหรับงาน AI
     order: 1
     tickers: [NVDA, AMD, AVGO, MRVL, MU, INTC, QCOM, TXN, ADI, NXPI, ON, MPWR,
-              MCHP, SWKS, TER, ARM, SNDK]  # หมายเหตุ: ON = ON Semiconductor · SNDK = SanDisk
+              MCHP, SWKS, TER, ARM, SNDK,
+              ALAB, CRDO, LSCC, AMBA, SITM, WOLF, AEIS]
 
   - key: semi_equipment
     name: เครื่องจักรผลิตชิป
     description: เครื่องมือและอุปกรณ์สายการผลิตเซมิคอนดักเตอร์
     order: 2
-    tickers: [AMAT, LRCX, KLAC, ASML, ENTG, TER, COHR]
+    tickers: [AMAT, LRCX, KLAC, ASML, TER, COHR]
 
   - key: cloud
     name: Cloud & Hyperscaler
     description: ผู้ให้บริการคลาวด์รายใหญ่ที่ลงทุนดาต้าเซ็นเตอร์ AI
     order: 3
-    tickers: [MSFT, GOOGL, AMZN, META, ORCL, IBM, SNOW, DDOG, MDB, NBIS]
+    tickers: [MSFT, GOOGL, AMZN, META, ORCL, IBM, DDOG]
+
+  - key: new_dc
+    name: ดาต้าเซ็นเตอร์ AI รายใหม่
+    description: ผู้ให้เช่าพลังประมวลผล GPU และผู้ที่ย้ายจากเหมืองคริปโตมาทำ AI
+    order: 4
+    tickers: [CRWV, NBIS, IREN, CORZ, APLD, WULF, CIFR]
 
   - key: dc_infra
     name: โครงสร้างพื้นฐานดาต้าเซ็นเตอร์
     description: เซิร์ฟเวอร์ ระบบระบายความร้อน ไฟฟ้า และ REITs
-    order: 4
+    order: 5
     tickers: [SMCI, DELL, HPE, VRT, ETN, EMR, JCI, TT, PH, HUBB, EQIX, DLR,
-              IRM, PWR, FIX]
+              IRM, PWR, FIX, MOD, POWL]
 
   - key: network
     name: เครือข่าย & ออปติกส์
     description: สวิตช์ความเร็วสูง สายสัญญาณ และโมดูลออปติก
-    order: 5
-    tickers: [ANET, CSCO, CIEN, COHR, LITE, FFIV, GLW, JNPR, NTAP]
+    order: 6
+    tickers: [ANET, CSCO, CIEN, COHR, GLW, FFIV, NTAP]
 
   - key: power
     name: พลังงานป้อนดาต้าเซ็นเตอร์
     description: ไฟฟ้า นิวเคลียร์ ก๊าซ และกังหันผลิตไฟ
-    order: 6
-    tickers: [CEG, VST, NRG, GEV, TLN, PEG, D, SO, DUK, NEE, EXC, AEP, SRE,
-              ETR, PCG, TRGP, OKE]
+    order: 7
+    tickers: [CEG, VST, NRG, GEV, PEG, D, SO, DUK, NEE, EXC, AEP, SRE,
+              ETR, PCG, TRGP, OKE, OKLO, SMR, BE, BWXT]
 
   - key: ai_software
     name: ซอฟต์แวร์ & แอปพลิเคชัน AI
     description: ซอฟต์แวร์ที่นำ AI ไปสร้างรายได้โดยตรง
-    order: 7
+    order: 8
     tickers: [MSFT, PLTR, NOW, CRM, ADBE, SNPS, CDNS, PANW, CRWD, FTNT, ZS,
-              WDAY, TEAM, INTU, APP, TTD, ANSS]
+              WDAY, TEAM, INTU, APP, TTD,
+              BBAI, SOUN, TEM, PATH, "S", AI, RXRX, INOD]
 
   - key: space_defense
     name: อวกาศ จรวด & กลาโหม
-    description: ระบบป้องกันประเทศและอุตสาหกรรมอวกาศ
-    order: 8
-    tickers: [LMT, RTX, NOC, GD, LHX, HWM, TDG, AXON, LDOS, HII, TXT, BA]
+    description: ระบบป้องกันประเทศ ดาวเทียม จรวด และโดรน
+    order: 9
+    tickers: [LMT, RTX, NOC, GD, LHX, HWM, TDG, AXON, LDOS, HII, TXT, BA,
+              RKLB, ASTS, LUNR, RDW, PL, AVAV, KTOS]
+
+  - key: robotics
+    name: หุ่นยนต์ & ระบบอัตโนมัติ
+    description: ระบบอัตโนมัติในโรงงาน หุ่นยนต์บริการ และยานยนต์ไร้คนขับ
+    order: 10
+    tickers: [TSLA, ROK, EMR, HON, ISRG, ZBRA, AME, DOV, IEX, TER, PTC,
+              SYM, SERV, OUST, ACHR, JOBY]
+
+  - key: quantum
+    name: คอมพิวเตอร์ควอนตัม
+    description: เทคโนโลยีประมวลผลยุคถัดไป ยังอยู่ช่วงเริ่มต้น ราคาเหวี่ยงแรงมาก
+    order: 11
+    tickers: [IONQ, RGTI, QBTS, QUBT, IBM]
 
   - key: ai_fintech
     name: การเงิน & ฟินเทคที่ใช้ AI
     description: สถาบันการเงินและฟินเทคที่ใช้ AI เป็นแกนธุรกิจ
-    order: 9
-    tickers: [V, MA, PYPL, XYZ, FI, FIS, GPN, COIN, HOOD, IBKR, MSCI, SPGI,
+    order: 12
+    tickers: [V, MA, PYPL, XYZ, FIS, GPN, COIN, HOOD, IBKR, MSCI, SPGI,
               ICE, NDAQ, CME]
-
-  - key: robotics
-    name: หุ่นยนต์ & ระบบอัตโนมัติ
-    description: ระบบอัตโนมัติในโรงงานและยานยนต์ไร้คนขับ
-    order: 10
-    tickers: [TSLA, ROK, EMR, HON, ISRG, ZBRA, AME, DOV, IEX, CGNX, TER, PTC]
