@@ -49,7 +49,7 @@ themes:
     name: ชิป AI / เซมิคอนดักเตอร์
     description: ผู้ออกแบบและผลิตชิปสำหรับงาน AI
     order: 1
-    tickers: [NVDA, AMD, AVGO, MRVL, MU, INTC, QCOM, TXN, ADI, NXPI, ON, MPWR,
+    tickers: [NVDA, AMD, AVGO, MRVL, MU, INTC, QCOM, TXN, ADI, NXPI, "ON", MPWR,
               MCHP, SWKS, TER, ARM, SNDK,
               ALAB, CRDO, LSCC, AMBA, SITM, WOLF, AEIS]
 
