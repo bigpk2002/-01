@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "6";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "7";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PERIOD_TH = { "1d": "1 วัน", "1w": "1 สัปดาห์", "1m": "1 เดือน",
@@ -17,7 +17,7 @@
     page: "map",
     period: "1m", mapShow: "all", topN: 10, expanded: {},
     q: "", sector: "", theme: "", sort: "score",
-    tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: [],
+    tf: "d", tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: [],
     topPeriod: "1m", topDir: "up", topSector: "", topTheme: "",
     topCount: 10, topCap: "all"
   };
@@ -139,6 +139,7 @@
     });
 
     wire();
+    updateTfNote();
     renderMap();
     renderEma();
     renderTop();
@@ -245,11 +246,23 @@
 
   /* ───────────────── หน้าที่ 2: หาเส้น EMA ───────────────── */
 
+  // คืนชุดระยะห่าง/เทรนด์ ตามไทม์เฟรมที่เลือก
+  // รายวันเก็บไว้ที่ r.d · รายสัปดาห์อยู่ใน r.w.d
+  function tfData(r) {
+    if (st.tf === "w") {
+      var w = r.w;
+      return w ? { d: w.d, t: w.t, a: w.a, rb: null, sl: null } : null;
+    }
+    return r.d ? { d: r.d, t: r.t, a: r.a, rb: r.rb, sl: r.sl } : null;
+  }
+
   function evaluate(r) {
-    if (!r.d) return null;
+    var X = tfData(r);
+    if (!X) return null;
     var near = [], score = 0;
     for (var i = 0; i < EMAS.length; i++) {
-      var p = EMAS[i], d = r.d[i];
+      var p = EMAS[i], d = X.d[i];
+      if (d === null || d === undefined) continue;   // เส้นนี้ข้อมูลไม่พอ
       if (st.lines.indexOf(p) < 0) continue;
       if (st.side === "above" && d < 0) continue;
       if (st.side === "below" && d > 0) continue;
@@ -260,27 +273,27 @@
     }
     if (!near.length) return null;
 
-    if (r.a) score += 2;
-    if (r.t === "up") score += 1;
-    if (r.sl > 0) score += 0.5;
+    if (X.a) score += 2;
+    if (X.t === "up") score += 1;
+    if (X.sl > 0) score += 0.5;
 
     var shortHit = near.some(function (p) { return p <= 20; });
     var longHit = near.some(function (p) { return p >= 50; });
     var sig;
-    if (r.t === "up" && shortHit && near.length >= 2) sig = "ย่อเข้าหาเส้น (ขาขึ้น)";
-    else if (r.t === "up" && longHit) sig = "ทดสอบแนวรับใหญ่";
-    else if (r.t === "up") sig = "ย่อสั้น ๆ ในขาขึ้น";
-    else if (r.t === "down" && longHit) sig = "เด้งชนแนวต้านใหญ่";
-    else if (r.t === "down") sig = "เด้งชนเส้นสั้น (ขาลง)";
-    else if (r.rb <= 3) sig = "เส้นบีบตัว (รอ breakout)";
+    if (X.t === "up" && shortHit && near.length >= 2) sig = "ย่อเข้าหาเส้น (ขาขึ้น)";
+    else if (X.t === "up" && longHit) sig = "ทดสอบแนวรับใหญ่";
+    else if (X.t === "up") sig = "ย่อสั้น ๆ ในขาขึ้น";
+    else if (X.t === "down" && longHit) sig = "เด้งชนแนวต้านใหญ่";
+    else if (X.t === "down") sig = "เด้งชนเส้นสั้น (ขาลง)";
+    else if (X.rb !== null && X.rb <= 3) sig = "เส้นบีบตัว (รอ breakout)";
     else sig = "ราคาชนเส้น";
 
     var nd = 999;
     near.forEach(function (p) {
-      var v = Math.abs(r.d[EMAS.indexOf(p)]);
+      var v = Math.abs(X.d[EMAS.indexOf(p)]);
       if (v < nd) nd = v;
     });
-    return { near: near, score: Math.round(score * 100) / 100, sig: sig, nd: nd };
+    return { near: near, score: Math.round(score * 100) / 100, sig: sig, nd: nd, X: X };
   }
 
   // ช่วงค่า P/E ให้เลือก — ตัวที่ไม่มีค่า P/E มักเป็นบริษัทที่ยังขาดทุนอยู่
@@ -298,6 +311,18 @@
     return b && v >= b[0] && v < b[1];
   }
 
+  function updateTfNote() {
+    var el = $("tfNote");
+    if (!el) return;
+    if (st.tf === "w") {
+      el.innerHTML = "กราฟ<b>รายสัปดาห์</b> — หนึ่งแท่งคือหนึ่งสัปดาห์ " +
+        "EMA200 จึงมองย้อนไปเกือบ 4 ปี · ข้อมูลถึงสัปดาห์ของวันที่ <b>" +
+        thDate(D.meta.weekly_date) + "</b> (อัปเดตสัปดาห์ละครั้ง)";
+    } else {
+      el.innerHTML = "กราฟ<b>รายวัน</b> — หนึ่งแท่งคือหนึ่งวัน · อัปเดตทุกวันหลังตลาดปิด";
+    }
+  }
+
   var currentEma = [];
 
   function renderEma() {
@@ -312,10 +337,11 @@
 
     var out = [];
     D.rows.forEach(function (r) {
-      if (!r.d) return;
+      var X = tfData(r);
+      if (!X) return;
       if (st.sector && r.g !== st.sector) return;
       if (themeSet && themeSet.indexOf(r.s) < 0) return;
-      if (st.trend !== "all" && r.t !== st.trend) return;
+      if (st.trend !== "all" && X.t !== st.trend) return;
       if (!passPE(r)) return;
       if (q && (r.s + " " + r.n + " " + r.g).toLowerCase().indexOf(q) < 0) return;
       var ev = evaluate(r);
@@ -342,7 +368,7 @@
 
     var up = 0, multi = 0, big = 0;
     out.forEach(function (o) {
-      if (o.r.t === "up") up++;
+      if (o.ev.X.t === "up") up++;
       if (o.ev.near.length >= 3) multi++;
       if (o.ev.near.some(function (p) { return p >= 100; })) big++;
     });
@@ -357,15 +383,21 @@
       return '<div class="stat"><div class="k">' + x[0] + '</div><div class="v">' + x[1] + "</div></div>";
     }).join("");
 
-    $("count").textContent = "แสดง " + out.length + " จาก " + D.meta.ema_count + " ตัว";
+    var pool = st.tf === "w" ? (D.meta.weekly_count || 0) : D.meta.ema_count;
+    $("count").textContent = "แสดง " + out.length + " จาก " + pool + " ตัว";
     $("emptyEma").hidden = out.length > 0;
 
     $("egrid").innerHTML = out.map(function (o) {
-      var r = o.r, ev = o.ev, c = r.t === "up" ? "up" : r.t === "down" ? "down" : "";
+      var r = o.r, ev = o.ev, X = ev.X;
+      var c = X.t === "up" ? "up" : X.t === "down" ? "down" : "";
       var chg = r.r[di] || 0;
       var pe = (r.f || {}).pe;
       var chips = EMAS.map(function (p, i) {
-        var d = r.d[i];
+        var d = X.d[i];
+        if (d === null || d === undefined) {
+          return '<div class="e off"><div class="lb">' + p +
+                 '</div><div class="dv">—</div></div>';
+        }
         var k2 = ev.near.indexOf(p) >= 0 ? "hit" : (st.lines.indexOf(p) < 0 ? "off" : "");
         return '<div class="e ' + k2 + '"><div class="lb">' + p + '</div>' +
                '<div class="dv">' + sign(d) + "</div></div>";
@@ -375,7 +407,7 @@
           '<span class="chg ' + (chg >= 0 ? "p" : "n") + '">' + sign(chg) + '%</span>' +
           '<span class="px">$' + r.p + '</span></div>' +
         '<div class="nm">' + esc(r.n) + '</div>' +
-        '<div class="badges"><span class="b ' + c + '">' + (TREND_TH[r.t] || "") + '</span>' +
+        '<div class="badges"><span class="b ' + c + '">' + (TREND_TH[X.t] || "") + '</span>' +
           '<span class="b sig">' + ev.sig + '</span>' +
           (r.g ? '<span class="b">' + esc(r.g) + "</span>" : "") + '</div>' +
         '<div class="emas">' + chips + '</div>' +
@@ -496,7 +528,7 @@
 
     var valuation =
       cmpRow("P/E", f.pe, med.pe, function (v) { return num(v, 1) + " เท่า"; },
-             "ราคาเป็นกี่เท่าของกำไรต่อหุ้น") +
+             f.eps ? "= " + r.p + " ÷ " + num(f.eps, 2) : "ราคาเป็นกี่เท่าของกำไรต่อหุ้น") +
       cmpRow("P/E คาดการณ์", f.fpe, null, function (v) { return num(v, 1) + " เท่า"; },
              "คิดจากกำไรที่นักวิเคราะห์คาดปีหน้า") +
       cmpRow("P/BV", f.pb, med.pb, function (v) { return num(v, 2) + " เท่า"; },
@@ -579,12 +611,12 @@
     }
 
     // บอกที่มาของตัวเลขให้ชัด ผู้ใช้จะได้รู้ว่าข้อมูลสดแค่ไหน
-    var src = "";
+    var src = '<b>อัตราส่วนทั้งหมดคำนวณจากราคาปิด $' + r.p +
+              " ของวันที่ " + esc(D.meta.date) + "</b>" +
+              " — ถ้าเทียบกับเว็บอื่นที่แสดงราคาระหว่างวัน ตัวเลขจะต่างกันตามราคาที่ต่างกัน";
     if (f.fts) {
-      src = "งบการเงินและตัวเลขกิจการดึงเมื่อ " + thDate(f.fts);
-      if (f.adj) {
-        src += " · อัตราส่วนราคาคำนวณใหม่จากราคาปิดล่าสุดแล้ว จึงตรงกับราคาด้านบน";
-      }
+      src += "<br>กำไรต่อหุ้นและตัวเลขกิจการดึงเมื่อ " + thDate(f.fts) +
+             " (เปลี่ยนแค่ตอนประกาศงบ)";
     }
 
     return "<h3>ราคาแพงหรือถูก</h3>" + recheck + verdict +
@@ -608,18 +640,36 @@
              (v === null ? "—" : sign(v) + "%") + "</div></div>";
     }).join("");
 
-    var emaBlock = "";
-    if (r.d) {
-      emaBlock = '<h3>ระยะห่างจากเส้น EMA</h3><div class="emas big">' +
+    function emaSection(title, dd, tt, aa, note) {
+      if (!dd) return "";
+      return "<h3>" + title + '</h3><div class="emas big">' +
         EMAS.map(function (p, i) {
-          var d = r.d[i], hit = Math.abs(d) <= st.tol;
-          return '<div class="e ' + (hit ? "hit" : "") + '"><div class="lb">EMA ' + p + '</div>' +
-                 '<div class="dv">' + sign(d) + "%</div></div>";
+          var d = dd[i];
+          if (d === null || d === undefined) {
+            return '<div class="e off"><div class="lb">EMA ' + p +
+                   '</div><div class="dv">—</div></div>';
+          }
+          var hit = Math.abs(d) <= st.tol;
+          return '<div class="e ' + (hit ? "hit" : "") + '"><div class="lb">EMA ' + p +
+                 '</div><div class="dv">' + sign(d) + "%</div></div>";
         }).join("") + "</div>" +
-        '<p class="mnote">ช่องไฮไลต์ = อยู่ในระยะ ' + st.tol.toFixed(1) + '% ที่ตั้งไว้ในหน้าหาเส้น EMA · ' +
-        'เทรนด์ <b>' + (TREND_TH[r.t] || "-") + '</b>' +
-        (r.a ? ' · เส้นเรียงสวย 5&gt;10&gt;20&gt;50&gt;100&gt;200' : "") + "</p>";
+        '<p class="mnote">' + note +
+        (tt ? ' · เทรนด์ <b>' + (TREND_TH[tt] || "-") + "</b>" : "") +
+        (aa ? " · เส้นเรียงสวย 5&gt;10&gt;20&gt;50&gt;100&gt;200" : "") + "</p>";
     }
+
+    var emaBlock =
+      emaSection("ระยะห่างจากเส้น EMA — รายวัน", r.d, r.t, r.a,
+                 "ช่องไฮไลต์ = อยู่ในระยะ " + st.tol.toFixed(1) + "% ที่ตั้งไว้ในหน้าหาเส้น EMA") +
+      (r.w ? emaSection("ระยะห่างจากเส้น EMA — รายสัปดาห์", r.w.d, r.w.t, r.w.a,
+                        "ข้อมูลถึงสัปดาห์ของวันที่ " + thDate(D.meta.weekly_date) +
+                        " · มีข้อมูล " + r.w.n + " สัปดาห์" +
+                        (r.w.d.some(function (x) { return x === null; })
+                          ? " (เส้นที่ขึ้น — คือข้อมูลยังไม่พอ)" : ""))
+            : (D.meta.weekly_count
+                ? '<h3>ระยะห่างจากเส้น EMA — รายสัปดาห์</h3>' +
+                  '<p class="mnote">ยังไม่มีข้อมูลรายสัปดาห์ของหุ้นตัวนี้</p>'
+                : ""));
 
     var themes = (D.themes || []).filter(function (t) {
       return t.tickers.indexOf(tk) >= 0;
@@ -697,6 +747,10 @@
     seg("minNear", "minNear", Number, renderEma);
     seg("trend", "trend", null, renderEma);
     seg("side", "side", null, renderEma);
+    seg("tf", "tf", null, function () {
+      updateTfNote();
+      renderEma();
+    });
     seg("peRange", "pe", null, renderEma);
     seg("topPeriod", "topPeriod", null, renderTop);
     seg("topDir", "topDir", null, renderTop);
@@ -745,20 +799,24 @@
 
     $("csv").addEventListener("click", function () {
       var di = PERIODS.indexOf("1d");
+      var tfw = st.tf === "w" ? "รายสัปดาห์" : "รายวัน";
       var head = ["ชื่อย่อ", "ชื่อบริษัท", "หมวดธุรกิจ", "ราคา", "เปลี่ยนแปลงวันนี้%",
-                  "เทรนด์", "สัญญาณ", "คะแนน", "ชนเส้น"]
+                  "ไทม์เฟรม", "เทรนด์", "สัญญาณ", "คะแนน", "ชนเส้น"]
                  .concat(EMAS.map(function (p) { return "ห่าง" + p; }));
       var lines = [head.join(",")];
       currentEma.forEach(function (o) {
         var r = o.r;
+        var XX = o.ev.X;
         lines.push([r.s, '"' + (r.n || "").replace(/"/g, "") + '"', '"' + r.g + '"',
-                    r.p, r.r[di], TREND_TH[r.t] || r.t, '"' + o.ev.sig + '"',
-                    o.ev.score, '"' + o.ev.near.join("/") + '"'].concat(r.d).join(","));
+                    r.p, r.r[di], tfw, TREND_TH[XX.t] || XX.t || "-",
+                    '"' + o.ev.sig + '"', o.ev.score,
+                    '"' + o.ev.near.join("/") + '"']
+                   .concat(XX.d.map(function (x) { return x === null ? "" : x; })).join(","));
       });
       var a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob(["\ufeff" + lines.join("\n")],
                { type: "text/csv;charset=utf-8" }));
-      a.download = "หุ้นใกล้เส้น-EMA.csv";
+      a.download = "หุ้นใกล้เส้น-EMA-" + (st.tf === "w" ? "รายสัปดาห์" : "รายวัน") + ".csv";
       a.click();
       URL.revokeObjectURL(a.href);
     });
