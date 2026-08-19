@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import binascii
 import csv
 import io
 import json
@@ -32,6 +33,7 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "docs", "data.json")
 FUND_PATH = os.path.join(HERE, "docs", "fundamentals.json")
+WEEKLY_PATH = os.path.join(HERE, "docs", "weekly.json")
 
 EMAS = [5, 10, 20, 50, 100, 200]
 PERIODS = ["1d", "1w", "1m", "3m", "ytd", "1y"]
@@ -43,10 +45,15 @@ SLEEP_BETWEEN = 1.5
 
 # ข้อมูลพื้นฐานต้องยิงทีละตัว จึงจำกัดจำนวนต่อรอบไม่ให้โดน Yahoo บล็อก
 # ข้อมูลพวกนี้เปลี่ยนไตรมาสละครั้ง ไม่ต้องดึงใหม่ทุกวัน
-FUND_PER_RUN = 180        # ดึงใหม่สูงสุดกี่ตัวต่อการรันหนึ่งครั้ง
-FUND_STALE_DAYS = 7       # ข้อมูลเก่ากว่ากี่วันถึงดึงใหม่
+FUND_PER_RUN = 300        # ดึงใหม่สูงสุดกี่ตัวต่อการรันหนึ่งครั้ง
+FUND_STALE_DAYS = 3       # ข้อมูลเก่ากว่ากี่วันถึงดึงใหม่ (วนครบทุกตัวใน ~2 วัน)
 FUND_SLEEP = 0.45         # พักระหว่างตัว (วินาที)
 SPLIT_GUARD = 0.35        # ราคาต่างจากตอนดึงเกินกี่เท่า ถือว่าข้อมูลใช้ไม่ได้แล้ว
+
+# เส้น EMA รายสัปดาห์ — แท่งหนึ่งแท่งคือหนึ่งสัปดาห์
+# ข้อมูลชุดนี้เปลี่ยนสัปดาห์ละครั้ง (ตอนตลาดปิดวันศุกร์) จึงไม่ต้องคำนวณใหม่ทุกวัน
+WEEKLY_STALE_DAYS = 6     # ข้อมูลรายสัปดาห์เก่ากว่ากี่วันถึงดึงใหม่
+WEEKLY_PERIOD = "10y"     # ต้องยาวพอสำหรับ EMA200 รายสัปดาห์ (200 สัปดาห์ = ~4 ปี)
 MAX_RETRY = 4
 BACKOFF_BASE = 8
 
@@ -126,6 +133,16 @@ TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "
 
 def thai_date(d) -> str:
     return f"{d.day} {TH_MONTHS[d.month - 1]} {d.year + 543}"
+
+
+def stable_seed(text: str) -> int:
+    """เลขสุ่มประจำตัวที่ได้ค่าเดิมเสมอ
+
+    ห้ามใช้ hash() ของ Python เพราะค่าจะเปลี่ยนทุกครั้งที่เปิดโปรแกรมใหม่
+    (Python สุ่มค่าเริ่มต้นของ hash เพื่อความปลอดภัย) ทำให้ข้อมูลจำลอง
+    ไม่คงที่และตรวจสอบย้อนหลังไม่ได้
+    """
+    return binascii.crc32(text.encode("utf-8")) % 100_000
 
 
 def norm(sym) -> str:
@@ -309,7 +326,8 @@ def _tidy(raw, sym):
     return df if len(df) else None
 
 
-def fetch_prices(symbols: list[str], period: str = "3y") -> dict[str, pd.DataFrame]:
+def fetch_prices(symbols: list[str], period: str = "3y",
+                 interval: str = "1d") -> dict[str, pd.DataFrame]:
     import yfinance as yf
 
     out, failed = {}, []
@@ -319,7 +337,7 @@ def fetch_prices(symbols: list[str], period: str = "3y") -> dict[str, pd.DataFra
         raw = None
         for attempt in range(1, MAX_RETRY + 1):
             try:
-                raw = yf.download(tickers=chunk, period=period, interval="1d",
+                raw = yf.download(tickers=chunk, period=period, interval=interval,
                                   auto_adjust=False, group_by="ticker",
                                   threads=False, progress=False)
                 if raw is not None and len(raw):
@@ -356,7 +374,7 @@ def demo_prices(symbols: list[str], bars: int = 760) -> dict[str, pd.DataFrame]:
     n = len(idx)
     out = {}
     for s in symbols:
-        rng = np.random.default_rng(abs(hash(s)) % 10_000)
+        rng = np.random.default_rng(stable_seed(s))
         ret = rng.normal(rng.normal(0.0005, 0.0008), rng.uniform(.012, .032), n)
         ret += 0.005 * np.sin(np.linspace(0, rng.uniform(3, 10) * np.pi, n))
         close = 20 * np.exp(np.cumsum(ret)) * rng.uniform(0.4, 18)
@@ -696,6 +714,106 @@ def refresh_ratios(f: dict, price: float) -> dict:
     return out
 
 
+def load_weekly() -> dict:
+    if not os.path.exists(WEEKLY_PATH):
+        return {}
+    try:
+        with open(WEEKLY_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"  ! อ่านไฟล์รายสัปดาห์เดิมไม่ได้ ({e}) เริ่มใหม่")
+        return {}
+
+
+def save_weekly(payload: dict) -> None:
+    os.makedirs(os.path.dirname(WEEKLY_PATH), exist_ok=True)
+    with open(WEEKLY_PATH, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
+
+
+def weekly_ema(close: pd.Series) -> dict | None:
+    """คำนวณระยะห่างจากเส้น EMA บนกราฟรายสัปดาห์
+
+    ต่างจากรายวันตรงที่หนึ่งแท่ง = หนึ่งสัปดาห์ เส้น EMA20 รายสัปดาห์
+    จึงมองย้อนหลังราว 5 เดือน ส่วน EMA200 มองย้อนไปเกือบ 4 ปี
+    นักลงทุนระยะยาวใช้ดูภาพใหญ่ว่าแนวโน้มหลักยังอยู่ทิศไหน
+
+    เส้นไหนข้อมูลไม่พอจะคืนค่า None แทนที่จะคำนวณจากเท่าที่มี
+    (หุ้นที่เพิ่งเข้าตลาดมักมี EMA5-20 แต่ไม่มี EMA200)
+    """
+    n = len(close)
+    if n < 30:                       # น้อยกว่านี้ไม่มีความหมายแม้แต่เส้นสั้น
+        return None
+
+    price = float(close.iloc[-1])
+    if not np.isfinite(price) or price <= 0:
+        return None
+
+    dists, levels = [], {}
+    for p in EMAS:
+        # ต้องมีแท่งมากพอให้ค่า EMA นิ่ง ไม่งั้นตัวเลขจะเพี้ยนตามค่าเริ่มต้น
+        if n < p + 15:
+            dists.append(None)
+            continue
+        lv = float(close.ewm(span=p, adjust=False).mean().iloc[-1])
+        if not np.isfinite(lv) or lv <= 0:
+            dists.append(None)
+            continue
+        levels[p] = lv
+        dists.append(round((price - lv) / lv * 100, 2))
+
+    if all(x is None for x in dists):
+        return None
+
+    out = {"d": dists, "n": n}
+
+    e50, e200 = levels.get(50), levels.get(200)
+    if e50 and e200:
+        out["t"] = ("up" if (price > e200 and e50 > e200)
+                    else "down" if (price < e200 and e50 < e200) else "flat")
+        got = [levels[p] for p in EMAS if p in levels]
+        out["a"] = int(len(got) == len(EMAS)
+                       and all(got[i] > got[i + 1] for i in range(len(got) - 1)))
+    return out
+
+
+def build_weekly(symbols: list[str], period: str = WEEKLY_PERIOD,
+                 demo: bool = False) -> dict:
+    """ดึงราคารายสัปดาห์แล้วคำนวณ EMA — ทำสัปดาห์ละครั้งพอ"""
+    print(f"เส้น EMA รายสัปดาห์ — ดึงราคา {len(symbols)} ตัว (ย้อนหลัง {period})")
+
+    if demo:
+        idx = pd.date_range(end=pd.Timestamp.today().normalize(), periods=520, freq="W-FRI")
+        rows = {}
+        for s in symbols:
+            rng = np.random.default_rng(stable_seed(s + "w"))
+            ret = rng.normal(0.002, 0.035, len(idx))
+            ret += 0.02 * np.sin(np.linspace(0, rng.uniform(2, 6) * np.pi, len(idx)))
+            close = pd.Series(30 * np.exp(np.cumsum(ret)) * rng.uniform(0.5, 15), index=idx)
+            w = weekly_ema(close)
+            if w:
+                rows[s] = w
+        date = str(idx[-1].date())
+    else:
+        data = fetch_prices(symbols, period=period, interval="1wk")
+        rows, last = {}, None
+        for s in symbols:
+            df = data.get(s)
+            if df is None or len(df) < 30:
+                continue
+            w = weekly_ema(df["adj_close"])
+            if w:
+                rows[s] = w
+                if last is None or df.index[-1] > last:
+                    last = df.index[-1]
+        date = str(last.date()) if last is not None else "-"
+
+    full = sum(1 for w in rows.values() if all(x is not None for x in w["d"]))
+    print(f"  คำนวณได้ {len(rows)} ตัว (ครบทั้ง 6 เส้น {full} ตัว)")
+    return {"updated": datetime.now().isoformat(timespec="seconds"),
+            "date": date, "rows": rows}
+
+
 def sector_medians(rows: list[dict], demo: bool = False) -> dict:
     """ค่ากลางของแต่ละหมวดธุรกิจ ใช้เทียบว่าหุ้นตัวนี้แพงหรือถูกกว่าเพื่อนในหมวด"""
     from statistics import median
@@ -805,6 +923,10 @@ def main() -> int:
                     help="ข้ามการดึงข้อมูลพื้นฐาน (ใช้เมื่ออยากได้ราคาเร็ว ๆ)")
     ap.add_argument("--fund-limit", type=int, default=FUND_PER_RUN,
                     help="ดึงข้อมูลพื้นฐานสูงสุดกี่ตัวต่อรอบ")
+    ap.add_argument("--weekly", action="store_true",
+                    help="บังคับคำนวณเส้นรายสัปดาห์ใหม่ (ปกติทำเองสัปดาห์ละครั้ง)")
+    ap.add_argument("--skip-weekly", action="store_true",
+                    help="ข้ามเส้นรายสัปดาห์ ใช้ของเดิมต่อ")
     a = ap.parse_args()
 
     t0 = time.time()
@@ -884,6 +1006,42 @@ def main() -> int:
     if pending:
         print(f"  ยังรอชื่อบริษัทอีก {pending} ตัว (จะเติมให้เมื่อดึงข้อมูลพื้นฐานถึงคิว)")
 
+    # ── เส้น EMA รายสัปดาห์ ──
+    # ข้อมูลชุดนี้เปลี่ยนแค่ตอนตลาดปิดวันศุกร์ จึงคำนวณสัปดาห์ละครั้งพอ
+    wk = load_weekly()
+    need_weekly = a.weekly or not wk.get("rows")
+    if not need_weekly and wk.get("updated"):
+        try:
+            age = (datetime.now() - datetime.fromisoformat(wk["updated"])).days
+            need_weekly = age >= WEEKLY_STALE_DAYS
+        except ValueError:
+            need_weekly = True
+    # มีหุ้นใหม่เข้ามาก็ต้องคำนวณใหม่ ไม่งั้นตัวใหม่จะไม่มีเส้นรายสัปดาห์
+    if not need_weekly and wk.get("rows"):
+        missing = [r["s"] for r in rows if r["s"] not in wk["rows"]]
+        if len(missing) > max(5, len(rows) * 0.02):
+            need_weekly = True
+            print(f"มีหุ้นใหม่ {len(missing)} ตัวที่ยังไม่มีเส้นรายสัปดาห์")
+
+    if a.skip_weekly:
+        print("ข้ามเส้นรายสัปดาห์ตามที่สั่ง ใช้ข้อมูลเดิมต่อ")
+    elif need_weekly:
+        try:
+            wk = build_weekly([r["s"] for r in rows], demo=a.demo)
+            save_weekly(wk)
+        except Exception as e:
+            print(f"  ! คำนวณเส้นรายสัปดาห์ไม่สำเร็จ: {e} (ใช้ข้อมูลเดิมต่อ)")
+    else:
+        d_old = wk.get("date", "-")
+        print(f"เส้นรายสัปดาห์ยังใหม่อยู่ (ข้อมูลถึง {d_old}) ไม่ต้องคำนวณใหม่")
+    print()
+
+    wrows = wk.get("rows", {})
+    for r in rows:
+        w = wrows.get(r["s"])
+        if w:
+            r["w"] = w
+
     stale_adj = 0
     for r in rows:
         f = fund.get(r["s"])
@@ -911,6 +1069,8 @@ def main() -> int:
             "demo": bool(a.demo),
             "warnings": warnings,
             "fund_count": sum(1 for r in rows if "f" in r),
+            "weekly_count": sum(1 for r in rows if "w" in r),
+            "weekly_date": wk.get("date", "-"),
             "sector_med": sector_medians(rows, a.demo),
         },
         "themes": [{k: t[k] for k in ("key", "name", "desc", "order", "tickers")}
@@ -927,6 +1087,8 @@ def main() -> int:
     print(f"  หุ้นทั้งหมด {len(rows)} ตัว · คำนวณ EMA ได้ {payload['meta']['ema_count']} ตัว")
     print(f"  มีข้อมูลพื้นฐาน {payload['meta']['fund_count']} ตัว "
           f"· ค่ากลางรายหมวด {len(payload['meta']['sector_med'])} หมวด")
+    print(f"  มีเส้นรายสัปดาห์ {payload['meta']['weekly_count']} ตัว "
+          f"· ข้อมูลถึงสัปดาห์ของวันที่ {payload['meta']['weekly_date']}")
     print(f"  ข้อมูลปิดตลาดวันที่ {payload['meta']['date']}")
 
     # ตรวจความสมเหตุสมผลของข้อมูลพื้นฐาน แล้วรายงานในล็อก
@@ -956,11 +1118,21 @@ def main() -> int:
         if fakes:
             checks.append(f"ยังเป็นข้อมูลจำลอง {len(fakes)} ตัว — "
                           f"รัน workflow ซ้ำจนกว่าจะหมด")
-        oldf = [r["s"] for r in withf
-                if r["f"].get("fts") and
-                (datetime.now().date() - datetime.fromisoformat(r["f"]["fts"]).date()).days > 10]
+        ages = []
+        for r in withf:
+            if r["f"].get("fts"):
+                try:
+                    ages.append((datetime.now().date()
+                                 - datetime.fromisoformat(r["f"]["fts"]).date()).days)
+                except ValueError:
+                    pass
+        if ages:
+            print(f"  อายุข้อมูลพื้นฐาน: ใหม่สุด {min(ages)} วัน · "
+                  f"เก่าสุด {max(ages)} วัน · เฉลี่ย {sum(ages)/len(ages):.1f} วัน")
+        oldf = [a for a in ages if a > FUND_STALE_DAYS + 2]
         if oldf:
-            checks.append(f"ข้อมูลพื้นฐานเก่ากว่า 10 วัน {len(oldf)} ตัว")
+            checks.append(f"ข้อมูลพื้นฐานเก่ากว่า {FUND_STALE_DAYS + 2} วัน {len(oldf)} ตัว "
+                          f"— รัน workflow ซ้ำเพื่อดึงให้ครบ")
     if checks:
         print("\n  ข้อควรตรวจสอบ:")
         for c in checks:
