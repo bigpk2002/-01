@@ -19,6 +19,12 @@ on:
       skip_fundamentals:
         description: "ข้ามข้อมูลพื้นฐาน (ใส่ yes ถ้าอยากได้ราคาเร็ว ๆ)"
         default: ""
+      fund_limit:
+        description: "ดึงข้อมูลพื้นฐานสูงสุดกี่ตัวรอบนี้ (เว้นว่าง = 300)"
+        default: ""
+      weekly:
+        description: "บังคับคำนวณเส้นรายสัปดาห์ใหม่ (ใส่ yes)"
+        default: ""
 
 permissions:
   contents: write
@@ -46,17 +52,21 @@ jobs:
           PERIOD: ${{ inputs.period || '3y' }}
           LIMIT: ${{ inputs.limit }}
           SKIPF: ${{ inputs.skip_fundamentals }}
+          FLIM: ${{ inputs.fund_limit }}
+          WEEKLY: ${{ inputs.weekly }}
         run: |
           ARGS="--period $PERIOD"
           if [ -n "$LIMIT" ]; then ARGS="$ARGS --limit $LIMIT"; fi
           if [ -n "$SKIPF" ]; then ARGS="$ARGS --skip-fundamentals"; fi
+          if [ -n "$FLIM" ]; then ARGS="$ARGS --fund-limit $FLIM"; fi
+          if [ -n "$WEEKLY" ]; then ARGS="$ARGS --weekly"; fi
           python build.py $ARGS
 
       - name: อัปเดตเว็บไซต์
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f docs/data.json docs/fundamentals.json
+          git add -f docs/data.json docs/fundamentals.json docs/weekly.json
           if git diff --quiet --cached; then
             echo "ข้อมูลไม่เปลี่ยน ไม่ต้องคอมมิต"
           else
@@ -79,4 +89,5 @@ jobs:
           path: |
             docs/data.json
             docs/fundamentals.json
+            docs/weekly.json
           retention-days: 14
