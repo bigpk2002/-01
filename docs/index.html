@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#070b13">
 <title>AI Map — แผนที่หุ้น AI และตัวหาเส้น EMA</title>
 <meta name="description" content="แผนที่หุ้น AI ตามธีมธุรกิจ และตัวหาหุ้นที่ราคาใกล้เส้น EMA จาก S&P 500 + Nasdaq 100">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 <div class="wrap">
@@ -15,6 +15,7 @@
     <button class="tab on" data-page="map">AI Map</button>
     <button class="tab" data-page="ema">หาเส้น EMA</button>
     <button class="tab" data-page="top">หุ้นโตแรง</button>
+    <button class="tab" data-page="watch">น่าจับตามอง</button>
     <span class="badge" id="demoBadge" hidden>ข้อมูลจำลอง</span>
   </nav>
 
@@ -169,6 +170,29 @@
     <div class="toplist" id="toplist"></div>
   </section>
 
+  <!-- ─────────── หน้าที่ 4: น่าจับตามอง ─────────── -->
+  <section id="pageWatch" hidden>
+    <div class="panel">
+      <div class="line">
+        <div class="seg" id="wSide">
+          <span class="lab">ฝั่ง</span>
+          <button class="on" data-v="all">ทั้งหมด</button>
+          <button data-v="up">สัญญาณฝั่งบวก</button>
+          <button data-v="down">สัญญาณฝั่งลบ</button>
+          <button data-v="watch">รอทิศทาง</button>
+        </div>
+        <select id="wSector"><option value="">ทุกหมวดธุรกิจ</option></select>
+        <select id="wTheme"><option value="">ทุกธีม AI</option></select>
+      </div>
+      <div class="line">
+        <div class="seg lines" id="wSignal"><span class="lab">เฉพาะสัญญาณ</span></div>
+      </div>
+    </div>
+    <p class="hint" id="wNote"></p>
+    <div class="wgrid" id="wgrid"></div>
+    <p class="empty" id="wEmpty" hidden>ไม่มีหุ้นตรงเงื่อนไข</p>
+  </section>
+
   <!-- ─────────── หน้าต่างรายละเอียดหุ้น ─────────── -->
   <div class="modal" id="modal" hidden>
     <div class="sheet">
@@ -187,6 +211,15 @@
       <p>หุ้นที่มีประวัติราคาไม่ครบช่วงเวลาที่เลือกจะไม่ถูกจัดอันดับ (เช่นเพิ่งเข้าตลาด 3 เดือนแต่เลือกดู 1 ปี)</p>
       <p>ตัวที่ขึ้นแรงมากมักผันผวนสูงตามไปด้วย ควรดูค่า P/E และขนาดบริษัทประกอบ</p>
     </div>
+    <div id="footWatch" hidden>
+      <p><b>สัญญาณเหล่านี้คืออะไร</b> — เป็นเงื่อนไขทางเทคนิคที่คำนวณจากราคาปิดล่าสุด
+        เพื่อชี้จุดที่ควรไปเปิดกราฟดูต่อ <b>ไม่ใช่สัญญาณซื้อขาย</b></p>
+      <p>หุ้นตัวเดียวติดได้หลายสัญญาณ · ยิ่งติดหลายอันยิ่งน่าไปดู แต่ไม่ได้แปลว่าดีกว่า</p>
+      <p>สัญญาณฝั่งลบไม่ได้แปลว่าให้ขาย บางครั้งจุดที่ราคาลงมาชนแนวรับใหญ่คือจุดที่คนเข้าซื้อ
+        ส่วนสัญญาณฝั่งบวกก็อาจเป็นจุดที่ราคาวิ่งมาไกลจนเสี่ยงแล้ว</p>
+      <p class="disc">ทุกสัญญาณคำนวณจากราคาในอดีตเท่านั้น ไม่ได้บอกอนาคต
+        และไม่ได้พิจารณาข่าว งบการเงินล่าสุด หรือปัจจัยเฉพาะตัวของบริษัท</p>
+    </div>
     <div id="footEma" hidden>
       <p><b>วิธีอ่าน</b> — ช่องเลข 6 ช่องคือเส้น EMA ทั้ง 6 เส้น ตัวเลขคือระยะห่างของราคาจากเส้นนั้นเป็น %
         (บวก = ราคาอยู่เหนือเส้น) <span class="hl">ช่องไฮไลต์คือเส้นที่ราคากำลังชนอยู่</span></p>
@@ -198,6 +231,6 @@
   </footer>
 </div>
 
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
