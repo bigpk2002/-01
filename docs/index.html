@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#070b13">
 <title>AI Map — แผนที่หุ้น AI และตัวหาเส้น EMA</title>
 <meta name="description" content="แผนที่หุ้น AI ตามธีมธุรกิจ และตัวหาหุ้นที่ราคาใกล้เส้น EMA จาก S&P 500 + Nasdaq 100">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <div class="wrap">
@@ -71,6 +71,15 @@
           <option value="sym">เรียง: ชื่อย่อ A-Z</option>
         </select>
       </div>
+      <div class="line">
+        <div class="seg" id="tf">
+          <span class="lab">ไทม์เฟรม</span>
+          <button class="on" data-v="d">รายวัน</button>
+          <button data-v="w">รายสัปดาห์</button>
+        </div>
+        <span class="tfnote" id="tfNote"></span>
+      </div>
+
       <div class="line">
         <label class="slider">
           <span class="lab">ระยะที่ถือว่า “ใกล้”</span>
@@ -189,6 +198,6 @@
   </footer>
 </div>
 
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>
