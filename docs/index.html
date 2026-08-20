@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#070b13">
 <title>AI Map — แผนที่หุ้น AI และตัวหาเส้น EMA</title>
 <meta name="description" content="แผนที่หุ้น AI ตามธีมธุรกิจ และตัวหาหุ้นที่ราคาใกล้เส้น EMA จาก S&P 500 + Nasdaq 100">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <div class="wrap">
@@ -16,6 +16,7 @@
     <button class="tab" data-page="ema">หาเส้น EMA</button>
     <button class="tab" data-page="top">หุ้นโตแรง</button>
     <button class="tab" data-page="watch">น่าจับตามอง</button>
+    <button class="tab" data-page="earn">ผลประกอบการ</button>
     <span class="badge" id="demoBadge" hidden>ข้อมูลจำลอง</span>
   </nav>
 
@@ -193,6 +194,54 @@
     <p class="empty" id="wEmpty" hidden>ไม่มีหุ้นตรงเงื่อนไข</p>
   </section>
 
+  <!-- ─────────── หน้าที่ 5: ผลประกอบการไตรมาส ─────────── -->
+  <section id="pageEarn" hidden>
+    <div class="panel">
+      <div class="line">
+        <div class="seg" id="eQuad">
+          <span class="lab">จับคู่งบกับราคา</span>
+          <button class="on" data-v="all">ทั้งหมด</button>
+          <button data-v="gd">งบดี ราคาลง</button>
+          <button data-v="gu">งบดี ราคาขึ้น</button>
+          <button data-v="bu">งบแย่ ราคาขึ้น</button>
+          <button data-v="bd">งบแย่ ราคาลง</button>
+        </div>
+      </div>
+      <div class="line">
+        <div class="seg" id="eGrade">
+          <span class="lab">เกรดงบ</span>
+          <button class="on" data-v="all">ทั้งหมด</button>
+          <button data-v="A">ดีมาก</button>
+          <button data-v="B">ดี</button>
+          <button data-v="C">ปานกลาง</button>
+          <button data-v="D">อ่อน</button>
+        </div>
+        <div class="seg" id="eRecent">
+          <span class="lab">ช่วงที่รายงานงบ</span>
+          <button class="on" data-v="all">ทั้งหมด</button>
+          <button data-v="45">ใน 45 วัน</button>
+          <button data-v="90">ใน 90 วัน</button>
+        </div>
+      </div>
+      <div class="line">
+        <input type="search" id="eQ" placeholder="ค้นหา: AAPL, Apple, พลังงาน…" autocomplete="off">
+        <select id="eSector"><option value="">ทุกหมวดธุรกิจ</option></select>
+        <select id="eTheme"><option value="">ทุกธีม AI</option></select>
+        <select id="eSort">
+          <option value="score">เรียง: คะแนนงบสูงสุด</option>
+          <option value="gap">เรียง: งบดีแต่ราคาลงมากสุด</option>
+          <option value="rg">เรียง: รายได้โตมากสุด</option>
+          <option value="eg">เรียง: กำไรโตมากสุด</option>
+          <option value="recent">เรียง: รายงานงบล่าสุด</option>
+        </select>
+      </div>
+    </div>
+    <div class="stats" id="eStats"></div>
+    <p class="hint" id="eNote"></p>
+    <div class="egrid2" id="earnlist"></div>
+    <p class="empty" id="eEmpty" hidden>ไม่มีหุ้นตรงเงื่อนไข</p>
+  </section>
+
   <!-- ─────────── หน้าต่างรายละเอียดหุ้น ─────────── -->
   <div class="modal" id="modal" hidden>
     <div class="sheet">
@@ -210,6 +259,17 @@
       <p><b>วิธีอ่าน</b> — จัดอันดับจาก % เปลี่ยนแปลงของช่วงเวลาที่เลือก คำนวณจากราคาปิดที่ปรับปันผลและการแตกพาร์แล้ว</p>
       <p>หุ้นที่มีประวัติราคาไม่ครบช่วงเวลาที่เลือกจะไม่ถูกจัดอันดับ (เช่นเพิ่งเข้าตลาด 3 เดือนแต่เลือกดู 1 ปี)</p>
       <p>ตัวที่ขึ้นแรงมากมักผันผวนสูงตามไปด้วย ควรดูค่า P/E และขนาดบริษัทประกอบ</p>
+    </div>
+    <div id="footEarn" hidden>
+      <p><b>คะแนนงบคิดจาก 4 อย่าง</b> — รายได้เติบโต · กำไรเติบโต · อัตรากำไรสุทธิ · ROE
+        แต่ละอันให้ 0–2 คะแนน รวมเต็ม 8 แล้วแปลงเป็นเกรด</p>
+      <p><b>เกรด</b> ดีมาก (6–8) · ดี (4.5–6) · ปานกลาง (3–4.5) · อ่อน (ต่ำกว่า 3)</p>
+      <p><b>"งบดี ราคาลง"</b> คือเกรด ดี/ดีมาก แต่ราคา 3 เดือนติดลบ —
+        อาจเป็นจังหวะที่ตลาดยังไม่ให้ราคา หรืออาจมีเรื่องที่ตัวเลขย้อนหลังไม่บอก ต้องดูต่อเอง</p>
+      <p><b>"งบแย่ ราคาขึ้น"</b> คือเกรดอ่อนแต่ราคาวิ่ง — ราคาอาจไปไกลกว่าพื้นฐาน
+        หรือตลาดกำลังมองอนาคตที่ตัวเลขย้อนหลังยังไม่สะท้อน</p>
+      <p class="disc">ตัวเลขทั้งหมดเป็นผลประกอบการ<b>ย้อนหลัง</b>ที่บริษัทรายงานแล้ว
+        ไม่ใช่การคาดการณ์ และไม่มีข้อมูลว่าผลออกมาดีกว่าหรือแย่กว่าที่นักวิเคราะห์คาดไว้</p>
     </div>
     <div id="footWatch" hidden>
       <p><b>สัญญาณเหล่านี้คืออะไร</b> — เป็นเงื่อนไขทางเทคนิคที่คำนวณจากราคาปิดล่าสุด
@@ -231,6 +291,6 @@
   </footer>
 </div>
 
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
