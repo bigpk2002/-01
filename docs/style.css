@@ -203,15 +203,21 @@ input[type=range]{flex:1;min-width:80px;accent-color:var(--accent);height:20px}
 }
 
 /* ── แท็บแบบปุ่ม (เว็บ static ไม่มีการโหลดหน้าใหม่) ── */
+/* แท็บมี 5 อัน จอมือถือใส่ไม่พอ จึงให้เลื่อนแนวนอนได้ในแถบตัวเอง
+   แทนที่จะดันเนื้อหาทั้งหน้าจนล้น */
 .tabs{display:flex;gap:4px;align-items:center;margin-bottom:16px;
-  border-bottom:1px solid var(--line)}
+  border-bottom:1px solid var(--line);
+  overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.tabs::-webkit-scrollbar{display:none}
 .tab{background:transparent;border:none;border-bottom:2px solid transparent;
-  padding:9px 18px;color:var(--dim);font-size:14.5px;font-weight:600;
-  font-family:inherit;cursor:pointer;margin-bottom:-1px}
+  padding:9px 15px;color:var(--dim);font-size:14.5px;font-weight:600;
+  font-family:inherit;cursor:pointer;margin-bottom:-1px;
+  white-space:nowrap;flex:0 0 auto}
 .tab:hover{color:var(--ink)}
 .tab.on{color:var(--ink);border-bottom-color:var(--accent)}
 .tabs .badge{margin-left:auto;font-size:11px;padding:2px 9px;border-radius:20px;
-  background:rgba(251,191,36,.14);color:#fbbf24;border:1px solid rgba(251,191,36,.4)}
+  background:rgba(251,191,36,.14);color:#fbbf24;border:1px solid rgba(251,191,36,.4);
+  white-space:nowrap;flex:0 0 auto}
 
 .tally .of{color:var(--faint);font-weight:400;font-family:inherit}
 
@@ -378,3 +384,42 @@ button.card.down{border-left-color:var(--down)}
   font-family:ui-monospace,Consolas,monospace}
 #wSignal button:disabled{cursor:default}
 @media(max-width:600px){.wgrid{grid-template-columns:1fr}}
+
+/* ── หน้าผลประกอบการ ── */
+.egrid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:11px}
+.ecard2{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--faint);
+  border-radius:12px;padding:12px 13px 11px;display:block;width:100%;text-align:left;
+  cursor:pointer;font-family:inherit;color:var(--ink)}
+.ecard2:hover{background:#26344a}
+.ecard2.gA{border-left-color:var(--up)}
+.ecard2.gB{border-left-color:#7dd3a0}
+.ecard2.gC{border-left-color:#fbbf24}
+.ecard2.gD{border-left-color:var(--down)}
+.egrade{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:3px 0 9px}
+.gbadge{font-size:12px;font-weight:700;padding:2px 9px;border-radius:6px}
+.gbadge.gA{background:rgba(74,222,128,.2);color:var(--up)}
+.gbadge.gB{background:rgba(125,211,160,.18);color:#7dd3a0}
+.gbadge.gC{background:rgba(251,191,36,.2);color:#fbbf24}
+.gbadge.gD{background:rgba(248,113,113,.2);color:var(--down)}
+.qbadge{font-size:11.5px;padding:2px 9px;border-radius:6px;border:1px solid}
+.qbadge.gd{color:#7cb2ff;border-color:#7cb2ff;background:rgba(124,178,255,.12)}
+.qbadge.gu{color:var(--up);border-color:var(--up);background:rgba(74,222,128,.1)}
+.qbadge.bu{color:#fbbf24;border-color:#fbbf24;background:rgba(251,191,36,.1)}
+.qbadge.bd{color:var(--down);border-color:var(--down);background:rgba(248,113,113,.1)}
+.p3{margin-left:auto;font-size:12px;color:var(--dim);
+  font-family:ui-monospace,Consolas,monospace}
+.ebars{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.ebar{background:var(--sunk);border:1px solid var(--line);border-left:2px solid var(--faint);
+  border-radius:7px;padding:5px 9px;display:flex;flex-direction:column;line-height:1.35}
+.ebar.p2{border-left-color:var(--up)}
+.ebar.p1{border-left-color:#fbbf24}
+.ebar.p0{border-left-color:var(--down)}
+.ek{font-size:11px;color:var(--dim)}
+.ev{font-size:13px;font-weight:600;font-family:ui-monospace,Consolas,monospace}
+.efoot2{margin-top:9px;font-size:11.5px;color:var(--faint)}
+@media(max-width:600px){.egrid2{grid-template-columns:1fr}}
+
+@media(max-width:640px){
+  .tab{padding:9px 12px;font-size:13.5px}
+  .tabs .badge{margin-left:8px}
+}
