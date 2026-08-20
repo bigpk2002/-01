@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "8";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "9";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PERIOD_TH = { "1d": "1 วัน", "1w": "1 สัปดาห์", "1m": "1 เดือน",
@@ -20,7 +20,9 @@
     tf: "d", tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: [],
     topPeriod: "1m", topDir: "up", topSector: "", topTheme: "",
     topCount: 10, topCap: "all",
-    wSide: "all", wSector: "", wTheme: "", wSignal: ""
+    wSide: "all", wSector: "", wTheme: "", wSignal: "",
+    eQuad: "all", eGrade: "all", eRecent: "all",
+    eQ: "", eSector: "", eTheme: "", eSort: "score"
   };
 
   var byTicker = {};
@@ -112,7 +114,8 @@
         '<option value="' + esc(t.key) + '">' + esc(t.name) + "</option>");
     });
 
-    ["topSector", "topTheme", "wSector", "wTheme"].forEach(function (id) {
+    ["topSector", "topTheme", "wSector", "wTheme",
+     "eSector", "eTheme"].forEach(function (id) {
       var el = $(id);
       var isSec = id.indexOf("Sector") >= 0;
       var src = isSec ? (D.meta.sectors || []) : (D.themes || []);
@@ -146,6 +149,7 @@
     renderEma();
     renderTop();
     renderWatch();
+    renderEarn();
   }
 
   /* ───────────────── หน้าที่ 1: AI Map ───────────────── */
@@ -668,6 +672,155 @@
     }).join("");
   }
 
+  /* ───────────────── หน้าที่ 5: ผลประกอบการไตรมาส ─────────────────
+
+     คะแนนงบคิดจากตัวเลขที่บริษัทรายงานแล้ว 4 อย่าง อย่างละ 0-2 คะแนน
+     ทุกเกณฑ์เขียนไว้ตรง ๆ ตรวจย้อนได้ ไม่ใช่สูตรลับ
+
+     สิ่งที่ทำไม่ได้และไม่ได้ทำ: เปรียบเทียบว่าผลออกมาดีกว่าหรือแย่กว่าที่
+     นักวิเคราะห์คาด (EPS surprise) เพราะต้องดึงข้อมูลเพิ่มทีละตัว        */
+
+  function earnScore(f) {
+    if (!f) return null;
+    var parts = [], total = 0, n = 0;
+
+    function grade(label, val, good, ok, fmt) {
+      if (val === null || val === undefined) return;
+      var p = val >= good ? 2 : val >= ok ? 1 : 0;
+      total += p; n++;
+      parts.push({ label: label, val: fmt(val), p: p });
+    }
+
+    var pc = function (v) { return (v > 0 ? "+" : "") + (v * 100).toFixed(1) + "%"; };
+    var pn = function (v) { return (v * 100).toFixed(1) + "%"; };
+
+    grade("รายได้เติบโต", f.rg, 0.15, 0.03, pc);
+    // กำไรรายไตรมาสสะท้อนภาพล่าสุดกว่า ถ้าไม่มีค่อยใช้รายปี
+    var eg = (f.eqg !== undefined && f.eqg !== null) ? f.eqg : f.eg;
+    grade("กำไรเติบโต", eg, 0.15, 0.0, pc);
+    grade("อัตรากำไรสุทธิ", f.pm, 0.15, 0.05, pn);
+    grade("ROE", f.roe, 0.15, 0.07, pn);
+
+    if (n < 2) return null;                 // ข้อมูลน้อยเกินจะให้เกรด
+
+    var score = total / n * 4;              // ปรับให้เต็ม 8 เสมอ
+    var g = score >= 6 ? "A" : score >= 4.5 ? "B" : score >= 3 ? "C" : "D";
+    var GT = { A: "ดีมาก", B: "ดี", C: "ปานกลาง", D: "อ่อน" };
+    return { score: Math.round(score * 10) / 10, grade: g, gradeTh: GT[g],
+             parts: parts, used: n };
+  }
+
+  function daysSince(iso) {
+    if (!iso) return null;
+    var t = Date.parse(iso);
+    if (isNaN(t)) return null;
+    return Math.floor((Date.now() - t) / 86400000);
+  }
+
+  var currentEarn = [];
+
+  function renderEarn() {
+    if (!D) return;
+    var q = st.eQ.toLowerCase();
+    var themeSet = null;
+    if (st.eTheme) {
+      var t = (D.themes || []).filter(function (x) { return x.key === st.eTheme; })[0];
+      themeSet = t ? t.tickers : [];
+    }
+    var qi = PERIODS.indexOf("3m"), di = PERIODS.indexOf("1d");
+
+    var all = [], out = [];
+    D.rows.forEach(function (r) {
+      var e = earnScore(r.f);
+      if (!e) return;
+      var p3 = r.r[qi];
+      var quad = null;
+      if (p3 !== null && p3 !== undefined) {
+        var good = e.grade === "A" || e.grade === "B";
+        quad = good ? (p3 < 0 ? "gd" : "gu") : (p3 > 0 ? "bu" : "bd");
+      }
+      var item = { r: r, e: e, p3: p3, quad: quad, age: daysSince((r.f || {}).mrq) };
+      all.push(item);
+
+      if (st.eSector && r.g !== st.eSector) return;
+      if (themeSet && themeSet.indexOf(r.s) < 0) return;
+      if (q && (r.s + " " + r.n + " " + r.g).toLowerCase().indexOf(q) < 0) return;
+      if (st.eGrade !== "all" && e.grade !== st.eGrade) return;
+      if (st.eQuad !== "all" && quad !== st.eQuad) return;
+      if (st.eRecent !== "all") {
+        if (item.age === null || item.age > Number(st.eRecent)) return;
+      }
+      out.push(item);
+    });
+
+    var k = st.eSort;
+    out.sort(function (a, b) {
+      if (k === "gap") {
+        // งบดีแต่ราคาลงมากสุดขึ้นก่อน
+        var ga = a.e.score - (a.p3 === null ? 0 : a.p3) / 5;
+        var gb = b.e.score - (b.p3 === null ? 0 : b.p3) / 5;
+        return gb - ga;
+      }
+      if (k === "rg") return ((b.r.f || {}).rg || -9) - ((a.r.f || {}).rg || -9);
+      if (k === "eg") {
+        var ea = (a.r.f || {}).eqg, eb = (b.r.f || {}).eqg;
+        if (ea === undefined || ea === null) ea = (a.r.f || {}).eg;
+        if (eb === undefined || eb === null) eb = (b.r.f || {}).eg;
+        return (eb === null || eb === undefined ? -9 : eb) -
+               (ea === null || ea === undefined ? -9 : ea);
+      }
+      if (k === "recent") return (a.age === null ? 9999 : a.age) -
+                                 (b.age === null ? 9999 : b.age);
+      return b.e.score - a.e.score;
+    });
+    currentEarn = out;
+
+    var cnt = { gd: 0, gu: 0, bu: 0, bd: 0 };
+    all.forEach(function (x) { if (x.quad) cnt[x.quad]++; });
+    $("eStats").innerHTML = [
+      ["งบดี ราคาลง", cnt.gd], ["งบดี ราคาขึ้น", cnt.gu],
+      ["งบแย่ ราคาขึ้น", cnt.bu], ["งบแย่ ราคาลง", cnt.bd]
+    ].map(function (x) {
+      return '<div class="stat"><div class="k">' + x[0] + '</div><div class="v">' +
+             x[1] + "</div></div>";
+    }).join("");
+
+    $("eNote").innerHTML =
+      "แสดง <b>" + out.length + "</b> จาก <b>" + all.length +
+      "</b> ตัวที่มีตัวเลขงบพอให้เกรด · เทียบราคา 3 เดือน · " +
+      "ตัวเลขเป็นผลประกอบการที่รายงานแล้ว ไม่ใช่การคาดการณ์";
+
+    $("eEmpty").hidden = out.length > 0;
+    var QT = { gd: ["งบดี ราคาลง", "gd"], gu: ["งบดี ราคาขึ้น", "gu"],
+               bu: ["งบแย่ ราคาขึ้น", "bu"], bd: ["งบแย่ ราคาลง", "bd"] };
+
+    $("earnlist").innerHTML = out.map(function (o) {
+      var r = o.r, e = o.e, f = r.f || {};
+      var chg = r.r[di] || 0;
+      var bars = e.parts.map(function (p) {
+        return '<div class="ebar p' + p.p + '"><span class="ek">' + p.label +
+               '</span><span class="ev">' + p.val + "</span></div>";
+      }).join("");
+      var qd = o.quad ? QT[o.quad] : null;
+      return '<button class="ecard2 g' + e.grade + '" data-tk="' + esc(r.s) + '">' +
+        '<div class="row1"><span class="tk">' + esc(r.s) + "</span>" +
+          '<span class="chg ' + (chg >= 0 ? "p" : "n") + '">' + sign(chg) + "%</span>" +
+          '<span class="px">$' + r.p + "</span></div>" +
+        '<div class="nm">' + esc(r.n) + (r.g ? " · " + esc(r.g) : "") + "</div>" +
+        '<div class="egrade"><span class="gbadge g' + e.grade + '">งบ ' + e.gradeTh +
+          " " + e.score.toFixed(1) + "/8</span>" +
+          (qd ? '<span class="qbadge ' + qd[1] + '">' + qd[0] + "</span>" : "") +
+          '<span class="p3">3 เดือน ' +
+          (o.p3 === null || o.p3 === undefined ? "—" : sign(o.p3) + "%") + "</span></div>" +
+        '<div class="ebars">' + bars + "</div>" +
+        '<div class="efoot2">' +
+          (f.mrq ? "งบไตรมาสถึง " + thDate(f.mrq) +
+                   (o.age !== null ? " (" + o.age + " วันก่อน)" : "") : "ไม่ทราบไตรมาส") +
+          (f.ed ? " · ประกาศงบครั้งหน้า " + thDate(f.ed) : "") +
+        "</div></button>";
+    }).join("");
+  }
+
   /* ───────────────── หน้าต่างรายละเอียด ───────────────── */
 
   /* สร้างส่วน "ข้อมูลพื้นฐานบริษัท" ในหน้าต่างรายละเอียด
@@ -815,6 +968,19 @@
       (src ? '<p class="mnote">' + src + "</p>" : "") +
       '<p class="mnote">ตัวเลขพวกนี้ดูตัวเดียวตัดสินไม่ได้ ต้องดูคู่กับการเติบโตและคุณภาพกิจการ · ' +
       "แต่ละหมวดธุรกิจมีระดับปกติต่างกันมาก จึงเทียบกับค่ากลางของหมวดเดียวกัน</p>" +
+      (function () {
+        var e = earnScore(f);
+        if (!e) return "";
+        return "<h3>คะแนนผลประกอบการไตรมาสล่าสุด</h3>" +
+          '<div class="verdict">งบ<b> ' + e.gradeTh + " </b>· " + e.score.toFixed(1) +
+          " เต็ม 8 คะแนน (คิดจาก " + e.used + " ตัวชี้วัด)</div>" +
+          '<div class="ebars">' + e.parts.map(function (p) {
+            return '<div class="ebar p' + p.p + '"><span class="ek">' + p.label +
+                   '</span><span class="ev">' + p.val + "</span></div>";
+          }).join("") + "</div>" +
+          (f.mrq ? '<p class="mnote">งบไตรมาสถึงวันที่ ' + thDate(f.mrq) +
+                   (f.ed ? " · ประกาศงบครั้งหน้า " + thDate(f.ed) : "") + "</p>" : "");
+      })() +
       (health ? "<h3>ตัวเลขกิจการ</h3><div class='pgrid wide'>" + health + "</div>" : "") +
       range + analyst;
   }
@@ -918,8 +1084,9 @@
         t.classList.add("on");
         st.page = t.dataset.page;
         var TITLE = { map: "AI Map", ema: "หุ้นที่ราคาใกล้เส้น EMA",
-                      top: "หุ้นโตแรง", watch: "หุ้นที่น่าจับตามอง" };
-        ["map", "ema", "top", "watch"].forEach(function (k) {
+                      top: "หุ้นโตแรง", watch: "หุ้นที่น่าจับตามอง",
+                      earn: "ผลประกอบการไตรมาส" };
+        ["map", "ema", "top", "watch", "earn"].forEach(function (k) {
           var pg = $("page" + k.charAt(0).toUpperCase() + k.slice(1));
           var ft = $("foot" + k.charAt(0).toUpperCase() + k.slice(1));
           if (pg) pg.hidden = (k !== st.page);
@@ -961,6 +1128,17 @@
     });
     $("wTheme").addEventListener("change", function (e) {
       st.wTheme = e.target.value; renderWatch();
+    });
+    seg("eQuad", "eQuad", null, renderEarn);
+    seg("eGrade", "eGrade", null, renderEarn);
+    seg("eRecent", "eRecent", null, renderEarn);
+    $("eQ").addEventListener("input", function (e) {
+      st.eQ = e.target.value.trim(); later(renderEarn);
+    });
+    ["eSector", "eTheme", "eSort"].forEach(function (id) {
+      $(id).addEventListener("change", function (e) {
+        st[id] = e.target.value; renderEarn();
+      });
     });
 
     var timer;
