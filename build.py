@@ -401,8 +401,12 @@ FUND_FIELDS = {
     "roe":  "returnOnEquity",
     "de":   "debtToEquity",
     "pm":   "profitMargins",
-    "rg":   "revenueGrowth",
-    "eg":   "earningsGrowth",
+    "rg":   "revenueGrowth",              # รายได้เติบโต เทียบไตรมาสเดียวกันปีก่อน
+    "eg":   "earningsGrowth",             # กำไรเติบโต เทียบปีก่อน
+    "eqg":  "earningsQuarterlyGrowth",    # กำไรเติบโตรายไตรมาส
+    "om":   "operatingMargins",           # อัตรากำไรจากการดำเนินงาน
+    "rev":  "totalRevenue",               # รายได้รวม 12 เดือนล่าสุด
+    "fcf":  "freeCashflow",               # กระแสเงินสดอิสระ
     "dy":   "dividendYield",
     "eps":  "trailingEps",
     "sh":   "sharesOutstanding",      # จำนวนหุ้น ใช้คำนวณมูลค่าบริษัทจากราคาล่าสุด
@@ -415,6 +419,8 @@ FUND_FIELDS = {
     "rec":  "recommendationKey",
     "emp":  "fullTimeEmployees",
     "ind":  "industry",
+    "mrq":  "mostRecentQuarter",      # ไตรมาสล่าสุดที่รายงานงบ (เป็น unix timestamp)
+    "ed":   "earningsTimestamp",      # วันประกาศงบครั้งถัดไป (unix timestamp)
     "nm":   "shortName",              # ใช้เติมชื่อบริษัทให้หุ้นที่ผู้ใช้เพิ่มเอง
     "sec":  "sector",                 # ใช้เติมหมวดธุรกิจให้หุ้นที่ผู้ใช้เพิ่มเอง
 }
@@ -456,6 +462,21 @@ def sanitize(row: dict) -> dict:
     """
     r = dict(row)
 
+    # แปลง unix timestamp เป็นวันที่ (Yahoo ส่งมาเป็นวินาที)
+    for k in ("mrq", "ed"):
+        v = r.get(k)
+        if v is None:
+            continue
+        try:
+            ts = float(v)
+            # ช่วงที่เป็นไปได้: ปี 2000 ถึง 2035
+            if 946_684_800 < ts < 2_082_758_400:
+                r[k] = datetime.fromtimestamp(ts).date().isoformat()
+            else:
+                r[k] = None
+        except (TypeError, ValueError, OSError, OverflowError):
+            r[k] = None
+
     # ปันผล: ถ้าค่ามากกว่า 0.25 แปลว่าเป็นหน่วยเปอร์เซ็นต์อยู่แล้ว
     # (ไม่มีหุ้นไหนจ่ายปันผล 25% ต่อปีในรูปเศษส่วน)
     dy = r.get("dy")
@@ -471,12 +492,12 @@ def sanitize(row: dict) -> dict:
             r[k] = None
 
     # อัตราส่วนที่เป็นเศษส่วน ไม่ควรเกิน ±10 เท่า
-    for k in ("roe", "pm", "rg", "eg"):
+    for k in ("roe", "pm", "om", "rg", "eg", "eqg"):
         v = r.get(k)
         if v is not None and abs(v) > 10:
             r[k] = None
 
-    for k in ("mc", "sh", "px0", "hi", "lo", "tgt"):
+    for k in ("mc", "sh", "px0", "hi", "lo", "tgt", "rev"):
         v = r.get(k)
         if v is not None and v <= 0:
             r[k] = None
@@ -562,6 +583,12 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
                 "ps": float(rng.uniform(0.5, 18)), "roe": float(rng.uniform(-.1, .6)),
                 "de": float(rng.uniform(5, 220)), "pm": float(rng.uniform(-.05, .45)),
                 "rg": float(rng.uniform(-.15, .6)), "eg": float(rng.uniform(-.3, .9)),
+                "eqg": float(rng.uniform(-.4, 1.1)),
+                "om": float(rng.uniform(-.05, .45)),
+                "rev": float(rng.uniform(5e8, 4e11)),
+                "fcf": float(rng.uniform(-2e9, 8e10)),
+                "mrq": (today - timedelta(days=int(rng.integers(20, 110)))).isoformat(),
+                "ed": (today + timedelta(days=int(rng.integers(3, 90)))).isoformat(),
                 "dy": float(rng.uniform(0, .05)),
                 "eps": float(eps_v),
                 "sh": float(sh_v),
@@ -658,8 +685,8 @@ def refresh_ratios(f: dict, price: float) -> dict:
     if px0 and abs(ratio - 1) > SPLIT_GUARD:
         # เก็บเฉพาะตัวเลขที่ไม่ผูกกับราคา ส่วนที่อิงราคาทิ้งหมด
         # (ช่วง 52 สัปดาห์และราคาเป้าหมายก็อิงราคา จึงใช้ไม่ได้เช่นกัน)
-        keep = ("roe", "de", "pm", "rg", "eg", "dy", "beta", "emp", "ind",
-                "rec", "na", "dm")
+        keep = ("roe", "de", "pm", "om", "rg", "eg", "eqg", "rev", "fcf",
+                "dy", "beta", "emp", "ind", "rec", "na", "dm", "mrq", "ed")
         out = {k: v for k, v in f.items() if k in keep}
         out["fts"] = f.get("ts")
         out["adj"] = 0
