@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#070b13">
 <title>AI Map — แผนที่หุ้น AI และตัวหาเส้น EMA</title>
 <meta name="description" content="แผนที่หุ้น AI ตามธีมธุรกิจ และตัวหาหุ้นที่ราคาใกล้เส้น EMA จาก S&P 500 + Nasdaq 100">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 <div class="wrap">
@@ -17,6 +17,7 @@
     <button class="tab" data-page="top">หุ้นโตแรง</button>
     <button class="tab" data-page="watch">น่าจับตามอง</button>
     <button class="tab" data-page="earn">ผลประกอบการ</button>
+    <button class="tab" data-page="cmp">เทียบในหมวด</button>
     <span class="badge" id="demoBadge" hidden>ข้อมูลจำลอง</span>
   </nav>
 
@@ -242,6 +243,57 @@
     <p class="empty" id="eEmpty" hidden>ไม่มีหุ้นตรงเงื่อนไข</p>
   </section>
 
+  <!-- ─────────── หน้าที่ 6: เทียบในหมวด ─────────── -->
+  <section id="pageCmp" hidden>
+    <div class="panel">
+      <div class="line">
+        <div class="seg" id="cMode">
+          <span class="lab">จัดกลุ่มตาม</span>
+          <button class="on" data-v="theme">ธีม AI</button>
+          <button data-v="sector">หมวดธุรกิจ</button>
+        </div>
+        <select id="cGroup"></select>
+        <div class="seg" id="cView">
+          <span class="lab">มุมมอง</span>
+          <button class="on" data-v="table">ตารางเทียบ</button>
+          <button data-v="rank">อันดับรวม</button>
+        </div>
+      </div>
+      <div class="line" id="cSortLine">
+        <select id="cSort">
+          <option value="score">เรียง: คะแนนรวม</option>
+          <option value="r3">เรียง: ผลตอบแทน 3 เดือน</option>
+          <option value="r1y">เรียง: ผลตอบแทน 1 ปี</option>
+          <option value="pe">เรียง: P/E ถูกสุด</option>
+          <option value="grade">เรียง: เกรดงบ</option>
+          <option value="rg">เรียง: รายได้โต</option>
+          <option value="mc">เรียง: มูลค่าบริษัท</option>
+          <option value="sym">เรียง: ชื่อย่อ</option>
+        </select>
+        <span class="tfnote" id="cNote"></span>
+      </div>
+    </div>
+
+    <div id="cLeaders"></div>
+    <div id="cWarn" hidden>
+      <div class="rankwarn">
+        <b>อ่านก่อนใช้คะแนนรวม</b>
+        คะแนนนี้รวม 4 ด้านที่วัดได้จากข้อมูลในเว็บ แล้วเทียบกันเฉพาะ<b>ภายในกลุ่มที่เลือก</b>
+        <ul>
+          <li>ทุกตัวเลขเป็น<b>อดีต</b> — ราคาย้อนหลังและงบที่รายงานไปแล้ว ไม่มีอะไรทำนายอนาคต</li>
+          <li><b>ยังไม่เคยทดสอบย้อนหลัง</b>ว่าคะแนนสูงให้ผลตอบแทนดีกว่าจริงหรือไม่</li>
+          <li>ไม่ได้ดูข่าว คู่แข่ง ผู้บริหาร หนี้ที่จะครบกำหนด หรือเหตุการณ์เฉพาะตัวบริษัท</li>
+          <li>ด้าน "ราคาถูก" ให้คะแนน P/E ต่ำ แต่หุ้นถูกมักถูกเพราะมีเหตุผล ต้องหาให้เจอว่าเพราะอะไร</li>
+        </ul>
+        <b>อันดับ 1 ไม่ได้แปลว่าน่าซื้อที่สุด</b> แปลว่าเป็นตัวที่ตัวเลขในเว็บนี้ดูดีที่สุดเท่านั้น
+      </div>
+    </div>
+
+    <div class="cwrap"><table class="ctable" id="ctable"></table></div>
+    <div class="rgrid" id="rgrid" hidden></div>
+    <p class="empty" id="cEmpty" hidden>กลุ่มนี้ยังไม่มีข้อมูลพอเปรียบเทียบ</p>
+  </section>
+
   <!-- ─────────── หน้าต่างรายละเอียดหุ้น ─────────── -->
   <div class="modal" id="modal" hidden>
     <div class="sheet">
@@ -259,6 +311,16 @@
       <p><b>วิธีอ่าน</b> — จัดอันดับจาก % เปลี่ยนแปลงของช่วงเวลาที่เลือก คำนวณจากราคาปิดที่ปรับปันผลและการแตกพาร์แล้ว</p>
       <p>หุ้นที่มีประวัติราคาไม่ครบช่วงเวลาที่เลือกจะไม่ถูกจัดอันดับ (เช่นเพิ่งเข้าตลาด 3 เดือนแต่เลือกดู 1 ปี)</p>
       <p>ตัวที่ขึ้นแรงมากมักผันผวนสูงตามไปด้วย ควรดูค่า P/E และขนาดบริษัทประกอบ</p>
+    </div>
+    <div id="footCmp" hidden>
+      <p><b>ตารางเทียบ</b> — ป้าย <span class="hl">ดีสุด</span> ในแต่ละคอลัมน์คือผู้นำด้านนั้น
+        <b>ของกลุ่มนี้เท่านั้น</b> หุ้นตัวเดียวมักไม่ได้นำทุกด้าน จุดสำคัญคือดูว่าต้องแลกอะไร</p>
+      <p>เช่นตัวที่โตเร็วสุดมักเป็นตัวที่ P/E แพงสุดด้วย · ตัวที่ถูกสุดมักเป็นตัวที่โตช้าหรือกำไรบาง</p>
+      <p><b>คะแนนรวม 4 ด้าน ด้านละ 25 คะแนน</b> — โมเมนตัมราคา · พื้นฐาน · ความถูกเทียบหมวด · เทรนด์เทคนิค
+        แต่ละใบกางให้เห็นว่าได้คะแนนจากด้านไหนบ้าง</p>
+      <p class="disc">เครื่องมือคัดกรองเพื่อจำกัดขอบเขตว่าควรไปศึกษาตัวไหนต่อ
+        ไม่ใช่คำแนะนำซื้อขาย และไม่ได้พิจารณาฐานะการเงิน ความเสี่ยงที่รับได้
+        หรือระยะเวลาลงทุนของคุณ</p>
     </div>
     <div id="footEarn" hidden>
       <p><b>คะแนนงบคิดจาก 4 อย่าง</b> — รายได้เติบโต · กำไรเติบโต · อัตรากำไรสุทธิ · ROE
@@ -291,6 +353,6 @@
   </footer>
 </div>
 
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
