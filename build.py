@@ -787,7 +787,7 @@ def weekly_ema(close: pd.Series) -> dict | None:
             dists.append(None)
             continue
         levels[p] = lv
-        dists.append(round((price - lv) / lv * 100, 2))
+        dists.append(round((price - lv) / lv * 100, 2) + 0.0)
 
     if all(x is None for x in dists):
         return None
@@ -909,7 +909,7 @@ def analyse(info: dict, df: pd.DataFrame) -> dict | None:
         if len(prior) == 0 or prior.iloc[-1] <= 0:
             rets[p] = None
             continue
-        rets[p] = round((price / float(prior.iloc[-1]) - 1) * 100, 2)
+        rets[p] = round((price / float(prior.iloc[-1]) - 1) * 100, 2) + 0.0
 
     row = {**{k: info[k] for k in ("n", "g")},
            "s": info["t"], "p": round(price, 2),
@@ -922,7 +922,9 @@ def analyse(info: dict, df: pd.DataFrame) -> dict | None:
         ema = {p: close.ewm(span=p, adjust=False).mean() for p in EMAS}
         lv = {p: float(ema[p].iloc[-1]) for p in EMAS}
         if all(np.isfinite(v) and v > 0 for v in lv.values()):
-            row["d"] = [round((price - lv[p]) / lv[p] * 100, 2) for p in EMAS]
+            # บวก 0.0 เพื่อให้ค่าติดลบศูนย์ (-0.0) กลายเป็น 0.0
+            # ไม่งั้นไฟล์ข้อมูลจะมี -0.0 ซึ่งสับสนเวลาตรวจสอบ
+            row["d"] = [round((price - lv[p]) / lv[p] * 100, 2) + 0.0 for p in EMAS]
             e50, e200 = lv[50], lv[200]
             row["t"] = ("up" if (price > e200 and e50 > e200)
                         else "down" if (price < e200 and e50 < e200) else "flat")
