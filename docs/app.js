@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "9";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "10";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PERIOD_TH = { "1d": "1 วัน", "1w": "1 สัปดาห์", "1m": "1 เดือน",
@@ -22,7 +22,8 @@
     topCount: 10, topCap: "all",
     wSide: "all", wSector: "", wTheme: "", wSignal: "",
     eQuad: "all", eGrade: "all", eRecent: "all",
-    eQ: "", eSector: "", eTheme: "", eSort: "score"
+    eQ: "", eSector: "", eTheme: "", eSort: "score",
+    cMode: "theme", cGroup: "", cView: "table", cSort: "score"
   };
 
   var byTicker = {};
@@ -150,6 +151,7 @@
     renderTop();
     renderWatch();
     renderEarn();
+    renderCmp();
   }
 
   /* ───────────────── หน้าที่ 1: AI Map ───────────────── */
@@ -821,6 +823,255 @@
     }).join("");
   }
 
+  /* ───────────────── หน้าที่ 6: เทียบในหมวด ─────────────────
+
+     สองมุมมองในหน้าเดียว
+       1) ตารางเทียบ — เห็นสมาชิกทุกตัวเรียงกัน ไฮไลต์ผู้นำ "แต่ละด้านแยกกัน"
+          จุดประสงค์คือให้เห็นว่าต้องแลกอะไร ไม่มีผู้ชนะรวม
+       2) อันดับรวม — รวม 4 ด้านเป็นคะแนนเดียว เทียบกันเฉพาะในกลุ่ม
+          พร้อมกางที่มาของคะแนนทุกด้าน และเตือนข้อจำกัดไว้ด้านบน
+
+     ย้ำ: ทุกอย่างคำนวณจากข้อมูลย้อนหลัง ไม่เคยทดสอบว่าทำนายได้จริง     */
+
+  function pctRank(v, arr) {
+    // อยู่อันดับที่เท่าไหร่ในกลุ่ม คืนค่า 0-1 (1 = ดีสุดในกลุ่ม)
+    if (v === null || v === undefined || arr.length < 2) return 0.5;
+    var below = arr.filter(function (x) { return x < v; }).length;
+    var same = arr.filter(function (x) { return x === v; }).length;
+    return (below + same / 2) / arr.length;
+  }
+
+  function cmpMembers() {
+    var list = [];
+    if (st.cMode === "theme") {
+      var t = (D.themes || []).filter(function (x) { return x.key === st.cGroup; })[0];
+      if (!t) return { name: "", rows: [] };
+      var by = {};
+      D.rows.forEach(function (r) { by[r.s] = r; });
+      t.tickers.forEach(function (tk) { if (by[tk]) list.push(by[tk]); });
+      return { name: t.name, rows: list };
+    }
+    D.rows.forEach(function (r) { if (r.g === st.cGroup) list.push(r); });
+    return { name: st.cGroup, rows: list };
+  }
+
+  function cmpCompute(rows) {
+    var i3 = PERIODS.indexOf("3m"), i1 = PERIODS.indexOf("1y"),
+        id = PERIODS.indexOf("1d");
+    var med = (D.meta.sector_med || {});
+
+    var items = rows.map(function (r) {
+      var f = r.f || {};
+      var e = earnScore(f);
+      // ความถูก: P/E ต่ำกว่าค่ากลางหมวดของตัวเอง = ดี
+      var mp = (med[r.g] || {}).pe;
+      var cheap = (f.pe && mp) ? (mp / f.pe) : null;     // >1 = ถูกกว่าหมวด
+      return {
+        r: r, f: f, e: e,
+        r3: r.r[i3], r1y: r.r[i1], d1: r.r[id],
+        pe: f.pe === undefined ? null : f.pe,
+        rg: f.rg === undefined ? null : f.rg,
+        pm: f.pm === undefined ? null : f.pm,
+        mc: f.mc === undefined ? null : f.mc,
+        cheap: cheap
+      };
+    });
+
+    // คะแนน 4 ด้าน ด้านละ 25 เทียบกันเฉพาะในกลุ่มนี้
+    var a3 = items.map(function (x) { return x.r3; })
+                  .filter(function (v) { return v !== null && v !== undefined; });
+    var ach = items.map(function (x) { return x.cheap; })
+                   .filter(function (v) { return v !== null; });
+
+    items.forEach(function (x) {
+      var mom = pctRank(x.r3, a3) * 25;
+      var fun = x.e ? (x.e.score / 8) * 25 : 0;
+      var val = x.cheap === null ? 0 : pctRank(x.cheap, ach) * 25;
+
+      // เทรนด์เทคนิค: อยู่เหนือเส้นยาว + เส้นเรียงสวย + รายสัปดาห์หนุน
+      var tech = 0;
+      if (x.r.d) {
+        if (x.r.d[5] > 0) tech += 9;          // เหนือ EMA200
+        if (x.r.d[3] > 0) tech += 5;          // เหนือ EMA50
+        if (x.r.a) tech += 6;                 // เส้นเรียงสวย
+        if (x.r.w && x.r.w.t === "up") tech += 5;   // รายสัปดาห์เป็นขาขึ้น
+      }
+      x.parts = [
+        { k: "โมเมนตัมราคา", v: mom, max: 25, note: "อันดับผลตอบแทน 3 เดือนในกลุ่ม" },
+        { k: "พื้นฐาน", v: fun, max: 25, note: x.e ? "เกรดงบ " + x.e.gradeTh : "ไม่มีข้อมูลงบ" },
+        { k: "ความถูกเทียบหมวด", v: val, max: 25,
+          note: x.pe ? "P/E " + num(x.pe, 1) : "ไม่มีค่า P/E" },
+        { k: "เทรนด์เทคนิค", v: tech, max: 25, note: "ตำแหน่งเทียบเส้น EMA" }
+      ];
+      x.score = Math.round((mom + fun + val + tech) * 10) / 10;
+    });
+
+    return items;
+  }
+
+  function renderCmp() {
+    if (!D) return;
+
+    // เติมตัวเลือกกลุ่มตามโหมด
+    var sel = $("cGroup");
+    var opts = st.cMode === "theme"
+      ? (D.themes || []).map(function (t) { return [t.key, t.name]; })
+      : (D.meta.sectors || []).map(function (g) { return [g, g]; });
+    var want = opts.map(function (o) { return o[0]; }).join("|");
+    if (sel.dataset.sig !== want) {
+      sel.innerHTML = opts.map(function (o) {
+        return '<option value="' + esc(o[0]) + '">' + esc(o[1]) + "</option>";
+      }).join("");
+      sel.dataset.sig = want;
+      if (!opts.some(function (o) { return o[0] === st.cGroup; })) {
+        st.cGroup = opts.length ? opts[0][0] : "";
+      }
+      sel.value = st.cGroup;
+    }
+
+    var g = cmpMembers();
+    var items = cmpCompute(g.rows);
+
+    var isRank = st.cView === "rank";
+    $("cWarn").hidden = !isRank;
+    $("rgrid").hidden = !isRank;
+    $("ctable").parentElement.hidden = isRank;
+    $("cSortLine").hidden = false;
+
+    if (!items.length) {
+      $("cEmpty").hidden = false;
+      $("ctable").innerHTML = "";
+      $("rgrid").innerHTML = "";
+      $("cLeaders").innerHTML = "";
+      $("cNote").textContent = "";
+      return;
+    }
+    $("cEmpty").hidden = true;
+
+    // ── ผู้นำแต่ละด้าน ──
+    function best(key, dir, fmt) {
+      var pool = items.filter(function (x) {
+        return x[key] !== null && x[key] !== undefined;
+      });
+      if (!pool.length) return null;
+      pool.sort(function (a, b) { return dir * (b[key] - a[key]); });
+      return { tk: pool[0].r.s, val: fmt(pool[0][key]) };
+    }
+    var leaders = [
+      ["ผลตอบแทน 3 เดือนดีสุด", best("r3", 1, function (v) { return sign(v) + "%"; })],
+      ["ผลตอบแทน 1 ปีดีสุด", best("r1y", 1, function (v) { return sign(v) + "%"; })],
+      ["รายได้โตเร็วสุด", best("rg", 1, function (v) { return sign(v * 100) + "%"; })],
+      ["อัตรากำไรสูงสุด", best("pm", 1, function (v) { return (v * 100).toFixed(1) + "%"; })],
+      ["P/E ถูกสุด", best("pe", -1, function (v) { return num(v, 1) + " เท่า"; })],
+      ["ขนาดใหญ่สุด", best("mc", 1, function (v) { return money(v); })]
+    ].filter(function (x) { return x[1]; });
+
+    $("cLeaders").innerHTML =
+      '<div class="ldwrap"><div class="ldhead">ผู้นำแต่ละด้านในกลุ่ม ' + esc(g.name) +
+      " (" + items.length + " ตัว)</div><div class=\"ldgrid\">" +
+      leaders.map(function (x) {
+        return '<button class="ldcell" data-tk="' + esc(x[1].tk) + '">' +
+          '<span class="ldk">' + x[0] + "</span>" +
+          '<span class="ldv"><b>' + esc(x[1].tk) + "</b> " + x[1].val + "</span></button>";
+      }).join("") + "</div>" +
+      '<p class="ldnote">หุ้นตัวเดียวมักไม่ได้นำทุกด้าน — ' +
+      "ดูว่าตัวที่นำด้านหนึ่งต้องแลกกับอะไรในด้านอื่น</p></div>";
+
+    // ── เรียงลำดับ ──
+    var k = st.cSort;
+    function num0(v) { return (v === null || v === undefined) ? -1e9 : v; }
+    items.sort(function (a, b) {
+      if (k === "sym") return a.r.s.localeCompare(b.r.s);
+      if (k === "r3") return num0(b.r3) - num0(a.r3);
+      if (k === "r1y") return num0(b.r1y) - num0(a.r1y);
+      if (k === "pe") {
+        var pa = a.pe === null ? 1e9 : a.pe, pb2 = b.pe === null ? 1e9 : b.pe;
+        return pa - pb2;
+      }
+      if (k === "grade") return (b.e ? b.e.score : -1) - (a.e ? a.e.score : -1);
+      if (k === "rg") return num0(b.rg) - num0(a.rg);
+      if (k === "mc") return num0(b.mc) - num0(a.mc);
+      return b.score - a.score;
+    });
+
+    $("cNote").innerHTML = isRank
+      ? "คะแนนเทียบกันเฉพาะใน <b>" + esc(g.name) + "</b> · เปลี่ยนกลุ่มแล้วคะแนนเปลี่ยนตาม"
+      : "ป้าย <b>ดีสุด</b> คือผู้นำด้านนั้นของกลุ่มนี้ · คลิกแถวเพื่อดูรายละเอียดหุ้น";
+
+    if (isRank) { renderRankCards(items); return; }
+
+    // ── ตารางเทียบ ──
+    var bestOf = {};
+    [["r3", 1], ["r1y", 1], ["rg", 1], ["pm", 1], ["mc", 1], ["pe", -1],
+     ["score", 1]].forEach(function (x) {
+      var pool = items.filter(function (i) {
+        return i[x[0]] !== null && i[x[0]] !== undefined;
+      });
+      if (!pool.length) return;
+      var b2 = pool.reduce(function (m, i) {
+        return (x[1] * (i[x[0]] - m[x[0]]) > 0) ? i : m;
+      });
+      bestOf[x[0]] = b2.r.s;
+    });
+    var bestGrade = items.filter(function (i) { return i.e; })
+      .sort(function (a, b) { return b.e.score - a.e.score; })[0];
+
+    var head = ["หุ้น", "ราคา", "วันนี้", "3 เดือน", "1 ปี", "P/E", "เกรดงบ",
+                "รายได้โต", "กำไรสุทธิ", "มูลค่า", "เทียบเส้น"];
+    var html = "<thead><tr>" + head.map(function (h) {
+      return "<th>" + h + "</th>";
+    }).join("") + "</tr></thead><tbody>";
+
+    html += items.map(function (x) {
+      var r = x.r, f = x.f;
+      function cell(v, key, cls) {
+        var b2 = bestOf[key] === r.s ? ' <span class="bestb">ดีสุด</span>' : "";
+        return '<td class="' + (cls || "") + '">' + v + b2 + "</td>";
+      }
+      var trend = r.d
+        ? (r.d[5] > 0 ? '<span class="up">เหนือ 200</span>'
+                      : '<span class="down">ใต้ 200</span>') +
+          (r.a ? ' <span class="up">เรียงสวย</span>' : "")
+        : "—";
+      return '<tr data-tk="' + esc(r.s) + '">' +
+        '<td class="csym"><b>' + esc(r.s) + "</b><span>" + esc(r.n) + "</span></td>" +
+        "<td>$" + r.p + "</td>" +
+        '<td class="' + (x.d1 >= 0 ? "up" : "down") + '">' + sign(x.d1 || 0) + "%</td>" +
+        cell(x.r3 === null ? "—" : sign(x.r3) + "%", "r3", x.r3 > 0 ? "up" : "down") +
+        cell(x.r1y === null ? "—" : sign(x.r1y) + "%", "r1y", x.r1y > 0 ? "up" : "down") +
+        cell(x.pe === null ? "—" : num(x.pe, 1), "pe") +
+        '<td>' + (x.e ? '<span class="gbadge g' + x.e.grade + '">' + x.e.gradeTh + "</span>" +
+          (bestGrade && bestGrade.r.s === r.s ? ' <span class="bestb">ดีสุด</span>' : "")
+          : "—") + "</td>" +
+        cell(x.rg === null ? "—" : sign(x.rg * 100) + "%", "rg") +
+        cell(x.pm === null ? "—" : (x.pm * 100).toFixed(1) + "%", "pm") +
+        cell(x.mc === null ? "—" : money(x.mc), "mc") +
+        "<td>" + trend + "</td></tr>";
+    }).join("") + "</tbody>";
+
+    $("ctable").innerHTML = html;
+  }
+
+  function renderRankCards(items) {
+    $("rgrid").innerHTML = items.map(function (x, i) {
+      var r = x.r;
+      var bars = x.parts.map(function (p) {
+        var w = Math.max(0, Math.min(100, p.v / p.max * 100));
+        return '<div class="pbrow"><span class="pbk">' + p.k + "</span>" +
+          '<span class="pbbar"><i style="width:' + w.toFixed(0) + '%"></i></span>' +
+          '<span class="pbv">' + p.v.toFixed(0) + "</span>" +
+          '<span class="pbn">' + esc(p.note) + "</span></div>";
+      }).join("");
+      return '<button class="rcard" data-tk="' + esc(r.s) + '">' +
+        '<div class="row1"><span class="rrank">' + (i + 1) + "</span>" +
+          '<span class="tk">' + esc(r.s) + "</span>" +
+          '<span class="px">$' + r.p + "</span>" +
+          '<span class="rscore">' + x.score.toFixed(0) + '<small>/100</small></span></div>' +
+        '<div class="nm">' + esc(r.n) + "</div>" +
+        '<div class="pbars">' + bars + "</div></button>";
+    }).join("");
+  }
+
   /* ───────────────── หน้าต่างรายละเอียด ───────────────── */
 
   /* สร้างส่วน "ข้อมูลพื้นฐานบริษัท" ในหน้าต่างรายละเอียด
@@ -1085,8 +1336,8 @@
         st.page = t.dataset.page;
         var TITLE = { map: "AI Map", ema: "หุ้นที่ราคาใกล้เส้น EMA",
                       top: "หุ้นโตแรง", watch: "หุ้นที่น่าจับตามอง",
-                      earn: "ผลประกอบการไตรมาส" };
-        ["map", "ema", "top", "watch", "earn"].forEach(function (k) {
+                      earn: "ผลประกอบการไตรมาส", cmp: "เทียบหุ้นในหมวดเดียวกัน" };
+        ["map", "ema", "top", "watch", "earn", "cmp"].forEach(function (k) {
           var pg = $("page" + k.charAt(0).toUpperCase() + k.slice(1));
           var ft = $("foot" + k.charAt(0).toUpperCase() + k.slice(1));
           if (pg) pg.hidden = (k !== st.page);
@@ -1139,6 +1390,14 @@
       $(id).addEventListener("change", function (e) {
         st[id] = e.target.value; renderEarn();
       });
+    });
+    seg("cMode", "cMode", null, function () { st.cGroup = ""; renderCmp(); });
+    seg("cView", "cView", null, renderCmp);
+    $("cGroup").addEventListener("change", function (e) {
+      st.cGroup = e.target.value; renderCmp();
+    });
+    $("cSort").addEventListener("change", function (e) {
+      st.cSort = e.target.value; renderCmp();
     });
 
     var timer;
