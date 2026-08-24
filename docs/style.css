@@ -68,7 +68,7 @@ h1{font-size:23px;margin:0;letter-spacing:-.3px}
 .up{color:var(--up)} .down{color:var(--down)}
 
 /* ── stock cards ── */
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:7px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(178px,100%),1fr));gap:7px}
 .card{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--faint);
   border-radius:9px;padding:8px 10px;display:block;transition:background .12s,transform .12s}
 .card:hover{background:#26344a;transform:translateY(-1px)}
@@ -161,7 +161,7 @@ input[type=range]{flex:1;min-width:80px;accent-color:var(--accent);height:20px}
 .ghost:hover{color:var(--ink);border-color:var(--faint)}
 
 /* ── การ์ดหน้า EMA ── */
-.egrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:11px}
+.egrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(290px,100%),1fr));gap:11px}
 .ecard{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--faint);
   border-radius:12px;padding:12px 13px 11px;display:block;transition:background .12s}
 .ecard:hover{background:#26344a}
@@ -248,7 +248,7 @@ button.card.down{border-left-color:var(--down)}
 .mnote b{color:var(--dim)}
 .sheet h3{font-size:13.5px;color:var(--dim);font-weight:600;margin:18px 0 8px;
   text-transform:none;letter-spacing:.3px}
-.pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:7px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(96px,100%),1fr));gap:7px}
 .pcell{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:8px 10px}
 .pcell .k{color:var(--dim);font-size:11.5px}
 .pcell .v{font-size:16px;font-weight:700;margin-top:1px;
@@ -304,7 +304,7 @@ button.card.down{border-left-color:var(--down)}
 }
 
 /* ช่องที่มีตัวเลขยาว เช่น มูลค่าบริษัท ต้องกว้างกว่าปกติ ไม่ให้ตกบรรทัด */
-.pgrid.wide{grid-template-columns:repeat(auto-fit,minmax(136px,1fr))}
+.pgrid.wide{grid-template-columns:repeat(auto-fit,minmax(min(136px,100%),1fr))}
 .pgrid.wide .v.sm{font-size:14px;white-space:nowrap}
 
 /* ป้ายเตือนข้อมูลจำลองในหน้าต่างรายละเอียด */
@@ -359,7 +359,7 @@ button.card.down{border-left-color:var(--down)}
 .tfnote b{color:var(--dim)}
 
 /* ── หน้าน่าจับตามอง ── */
-.wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:11px}
+.wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr));gap:11px}
 .wcard{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--faint);
   border-radius:12px;padding:12px 13px 11px;display:block;width:100%;text-align:left;
   cursor:pointer;font-family:inherit;color:var(--ink)}
@@ -386,7 +386,7 @@ button.card.down{border-left-color:var(--down)}
 @media(max-width:600px){.wgrid{grid-template-columns:1fr}}
 
 /* ── หน้าผลประกอบการ ── */
-.egrid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:11px}
+.egrid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(310px,100%),1fr));gap:11px}
 .ecard2{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--faint);
   border-radius:12px;padding:12px 13px 11px;display:block;width:100%;text-align:left;
   cursor:pointer;font-family:inherit;color:var(--ink)}
@@ -423,3 +423,69 @@ button.card.down{border-left-color:var(--down)}
   .tab{padding:9px 12px;font-size:13.5px}
   .tabs .badge{margin-left:8px}
 }
+
+/* ── หน้าเทียบในหมวด ── */
+.ldwrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:13px 15px;margin-bottom:13px}
+.ldhead{font-size:14px;font-weight:600;margin-bottom:10px}
+.ldgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));gap:7px}
+.ldcell{background:var(--card);border:1px solid var(--line);border-radius:9px;
+  padding:8px 11px;display:flex;flex-direction:column;line-height:1.4;
+  text-align:left;cursor:pointer;font-family:inherit;color:var(--ink)}
+.ldcell:hover{background:#26344a;border-color:var(--faint)}
+.ldk{font-size:11.5px;color:var(--dim)}
+.ldv{font-size:13.5px;font-family:ui-monospace,Consolas,monospace}
+.ldv b{font-size:14.5px;color:var(--accent)}
+.ldnote{margin:10px 0 0;font-size:12px;color:var(--faint)}
+
+.rankwarn{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.45);
+  border-radius:12px;padding:13px 16px;margin-bottom:13px;font-size:13px;color:var(--dim)}
+.rankwarn b{color:#fbbf24}
+.rankwarn ul{margin:8px 0;padding-left:20px}
+.rankwarn li{margin:4px 0}
+
+.cwrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;
+  background:var(--panel);-webkit-overflow-scrolling:touch}
+.ctable{border-collapse:collapse;width:100%;min-width:900px;font-size:13px}
+.ctable th{position:sticky;top:0;background:var(--panel);text-align:right;
+  padding:10px 12px;color:var(--dim);font-weight:600;font-size:12px;
+  border-bottom:1px solid var(--line);white-space:nowrap}
+.ctable th:first-child{text-align:left}
+.ctable td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--line);
+  white-space:nowrap;font-family:ui-monospace,Consolas,monospace}
+.ctable tr{cursor:pointer}
+.ctable tbody tr:hover td{background:#26344a}
+.csym{text-align:left !important;font-family:inherit !important}
+.csym b{font-size:14px;letter-spacing:.3px}
+.csym span{display:block;color:var(--dim);font-size:11.5px;max-width:180px;
+  overflow:hidden;text-overflow:ellipsis}
+.bestb{font-size:10px;background:rgba(124,178,255,.2);color:var(--accent);
+  padding:1px 6px;border-radius:5px;font-family:inherit}
+
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr));gap:11px}
+.rcard{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;text-align:left;cursor:pointer;font-family:inherit;color:var(--ink)}
+.rcard:hover{background:#26344a}
+.rrank{background:#2a4370;color:#fff;font-size:12.5px;font-weight:700;
+  min-width:24px;height:24px;border-radius:6px;display:inline-grid;place-items:center;
+  font-family:ui-monospace,Consolas,monospace}
+.rscore{margin-left:auto;font-size:20px;font-weight:700;color:var(--accent);
+  font-family:ui-monospace,Consolas,monospace}
+.rscore small{font-size:11px;color:var(--faint);font-weight:400}
+.pbars{display:flex;flex-direction:column;gap:5px;margin-top:9px}
+.pbrow{display:grid;grid-template-columns:112px 1fr 30px;gap:8px;align-items:center;
+  font-size:11.5px}
+.pbk{color:var(--dim)}
+.pbbar{background:var(--sunk);border-radius:5px;height:7px;overflow:hidden}
+.pbbar i{display:block;height:100%;background:var(--accent);border-radius:5px}
+.pbv{text-align:right;color:var(--ink);font-family:ui-monospace,Consolas,monospace}
+.pbn{grid-column:2 / -1;color:var(--faint);font-size:10.5px;margin-top:-2px}
+@media(max-width:600px){
+  .rgrid{grid-template-columns:1fr}
+  .pbrow{grid-template-columns:96px 1fr 28px}
+}
+
+/* กันการ์ดกว้างเกินจอบนหน้าจอแคบมาก (เช่น iPhone SE 360px)
+   min-width:0 จำเป็นเพราะ grid item มีค่าเริ่มต้นเป็น auto ซึ่งไม่ยอมหด */
+.ecard2,.wcard,.rcard,.ecard,.card,.ldcell{max-width:100%;min-width:0}
+.egrid2,.wgrid,.rgrid,.egrid,.cards,.ldgrid,.pgrid{min-width:0}
