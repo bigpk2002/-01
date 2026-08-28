@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "10";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "12";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PERIOD_TH = { "1d": "1 วัน", "1w": "1 สัปดาห์", "1m": "1 เดือน",
@@ -23,10 +23,88 @@
     wSide: "all", wSector: "", wTheme: "", wSignal: "",
     eQuad: "all", eGrade: "all", eRecent: "all",
     eQ: "", eSector: "", eTheme: "", eSort: "score",
-    cMode: "theme", cGroup: "", cView: "table", cSort: "score"
+    cMode: "theme", cGroup: "", cView: "table", cSort: "score",
+    sSort: "added", onlyStar: false
   };
 
   var byTicker = {};
+
+  /* ───────────────── รายการที่ติดดาว ─────────────────
+
+     เก็บในเบราว์เซอร์ของเครื่องนี้เท่านั้น (localStorage)
+     เพราะเว็บเป็นไฟล์นิ่งบน GitHub Pages ไม่มีฐานข้อมูลและไม่มีระบบล็อกอิน
+     จึงมีปุ่มส่งออก/นำเข้าไว้ย้ายข้อมูลข้ามเครื่อง
+
+     เก็บอะไรบ้าง: วันที่กดดาว · ราคา ณ วันนั้น · เหตุผลที่พิมพ์ไว้
+     ราคาตอนมาร์คสำคัญ เพราะทำให้ย้อนดูได้ว่าตั้งแต่สนใจมา ราคาไปทางไหน  */
+
+  var STAR_KEY = "aimap.stars.v1";
+  var stars = {};
+
+  function loadStars() {
+    try {
+      var raw = window.localStorage.getItem(STAR_KEY);
+      stars = raw ? JSON.parse(raw) : {};
+      // ต้องเป็น object ธรรมดาเท่านั้น — array ก็นับเป็น object ใน JS จึงต้องกันด้วย
+      if (typeof stars !== "object" || stars === null || Array.isArray(stars)) stars = {};
+      // ตัดรายการที่รูปแบบไม่ถูกออก กันข้อมูลเสียทำให้หน้าพัง
+      Object.keys(stars).forEach(function (k) {
+        var v = stars[k];
+        if (typeof v !== "object" || v === null || Array.isArray(v)) delete stars[k];
+      });
+    } catch (e) {
+      stars = {};      // เบราว์เซอร์ปิด localStorage หรือข้อมูลเสีย
+    }
+  }
+
+  function saveStars() {
+    try {
+      window.localStorage.setItem(STAR_KEY, JSON.stringify(stars));
+      return true;
+    } catch (e) {
+      alert("บันทึกไม่ได้ — เบราว์เซอร์อาจปิดการเก็บข้อมูลไว้ " +
+            "ลองปิดโหมดไม่ระบุตัวตน หรือใช้ปุ่มส่งออกเก็บไฟล์แทน");
+      return false;
+    }
+  }
+
+  function toggleStar(tk) {
+    if (stars[tk]) {
+      delete stars[tk];
+    } else {
+      var r = byTicker[tk];
+      stars[tk] = {
+        ts: (D && D.meta && D.meta.date) ? D.meta.date : "",
+        iso: new Date().toISOString().slice(0, 10),
+        px: r ? r.p : null,
+        note: ""
+      };
+    }
+    saveStars();
+    refreshAll();
+  }
+
+  function starIcon(tk) {
+    var on = !!stars[tk];
+    return '<span class="star' + (on ? " on" : "") + '" data-star="' + esc(tk) +
+      '" role="button" tabindex="0" title="' +
+      (on ? "เอาออกจากรายการที่ติดดาว" : "เพิ่มเข้ารายการที่ติดดาว") +
+      '">' + (on ? "★" : "☆") + "</span>";
+  }
+
+  function starCount() { return Object.keys(stars).length; }
+
+  // ตัวกรอง "เฉพาะที่ติดดาว" ใช้ร่วมกันทุกหน้า เปิดที่หน้าใดก็มีผลทุกหน้า
+  function passStar(tk) { return !st.onlyStar || !!stars[tk]; }
+
+  function syncStarFilterButtons() {
+    var n = starCount();
+    document.querySelectorAll(".starfilter").forEach(function (b) {
+      b.classList.toggle("on", st.onlyStar);
+      b.disabled = n === 0 && !st.onlyStar;
+      b.textContent = "★ เฉพาะที่ติดดาว" + (n ? " (" + n + ")" : "");
+    });
+  }
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -77,6 +155,23 @@
   function cls(v) { return v > 0 ? "up" : v < 0 ? "down" : ""; }
 
   /* ───────────────── โหลดข้อมูล ───────────────── */
+
+  var BT = null;          // ผลทดสอบย้อนหลัง โหลดแยก ไม่มีก็ไม่เป็นไร
+
+  // ไฟล์นี้เป็นของเสริม ถ้าไม่มีก็ใช้งานได้ปกติ
+  // ใช้ HEAD ตรวจก่อน จะได้ไม่มีข้อความ 404 ค้างใน console ของเบราว์เซอร์
+  fetch("backtest.json?v=" + Date.now(), { method: "HEAD" })
+    .then(function (r) {
+      if (!r.ok) return null;
+      return fetch("backtest.json?v=" + Date.now()).then(function (r2) {
+        return r2.ok ? r2.json() : null;
+      });
+    })
+    .then(function (d) {
+      BT = d;
+      if (BT && D) renderWatch();          // ถ้าข้อมูลหลักมาก่อน ให้วาดใหม่
+    })
+    .catch(function () { BT = null; });
 
   fetch("data.json?v=" + Date.now())
     .then(function (r) {
@@ -144,7 +239,9 @@
       box.appendChild(b);
     });
 
+    loadStars();
     wire();
+    syncStarFilterButtons();
     updateTfNote();
     renderMap();
     renderEma();
@@ -152,6 +249,7 @@
     renderWatch();
     renderEarn();
     renderCmp();
+    renderStar();
   }
 
   /* ───────────────── หน้าที่ 1: AI Map ───────────────── */
@@ -203,6 +301,7 @@
     $("groups").innerHTML = groups.map(function (g) {
       // ตัวกรองบวก/ลบซ่อนแค่การ์ด ค่าสรุปยังคิดจากสมาชิกทั้งหมดเสมอ
       var show = g.members.filter(function (m) {
+        if (!passStar(m.r.s)) return false;
         return st.mapShow === "all" ? true
              : st.mapShow === "up" ? m.pct > 0 : m.pct < 0;
       });
@@ -221,11 +320,13 @@
       }
 
       var cards = show.map(function (m) {
-        return '<button class="card ' + cls(m.pct) + '" data-tk="' + esc(m.r.s) + '">' +
-          '<div class="row1"><span class="tk">' + esc(m.r.s) + '</span>' +
+        return '<div class="card ' + cls(m.pct) + '" data-tk="' + esc(m.r.s) +
+          '" role="button" tabindex="0">' +
+          '<div class="row1">' + starIcon(m.r.s) +
+            '<span class="tk">' + esc(m.r.s) + '</span>' +
             '<span class="pct">' + sign(m.pct) + '%</span></div>' +
           '<div class="row2"><span class="nm">' + esc(m.r.n) + '</span>' +
-            '<span class="px">$' + m.r.p + '</span></div></button>';
+            '<span class="px">$' + m.r.p + '</span></div></div>';
       }).join("");
 
       var shownNote = hidden > 0
@@ -348,6 +449,7 @@
     D.rows.forEach(function (r) {
       var X = tfData(r);
       if (!X) return;
+      if (!passStar(r.s)) return;
       if (st.sector && r.g !== st.sector) return;
       if (themeSet && themeSet.indexOf(r.s) < 0) return;
       if (st.trend !== "all" && X.t !== st.trend) return;
@@ -411,8 +513,9 @@
         return '<div class="e ' + k2 + '"><div class="lb">' + p + '</div>' +
                '<div class="dv">' + sign(d) + "</div></div>";
       }).join("");
-      return '<button class="ecard ' + c + '" data-tk="' + esc(r.s) + '">' +
-        '<div class="row1"><span class="tk">' + esc(r.s) + '</span>' +
+      return '<div class="ecard ' + c + '" data-tk="' + esc(r.s) +
+        '" role="button" tabindex="0">' +
+        '<div class="row1">' + starIcon(r.s) + '<span class="tk">' + esc(r.s) + '</span>' +
           '<span class="chg ' + (chg >= 0 ? "p" : "n") + '">' + sign(chg) + '%</span>' +
           '<span class="px">$' + r.p + '</span></div>' +
         '<div class="nm">' + esc(r.n) + '</div>' +
@@ -423,7 +526,7 @@
         '<div class="efoot"><span>คะแนน <b>' + ev.score + '</b></span>' +
           '<span>ชน ' + ev.near.length + ' เส้น</span>' +
           '<span>P/E ' + (pe == null ? "—" : num(pe, 1)) + "</span>" +
-          (r.v ? "<span>" + fmtM(r.v) + "</span>" : "") + "</div></button>";
+          (r.v ? "<span>" + fmtM(r.v) + "</span>" : "") + "</div></div>";
     }).join("");
   }
 
@@ -442,6 +545,7 @@
     D.rows.forEach(function (r) {
       var pct = r.r[pi];
       if (pct === null || pct === undefined) return;   // ประวัติไม่ครบช่วงนี้
+      if (!passStar(r.s)) return;
       if (st.topSector && r.g !== st.topSector) return;
       if (themeSet && themeSet.indexOf(r.s) < 0) return;
       var mc = (r.f || {}).mc;
@@ -471,8 +575,9 @@
       var r = o.r, f = r.f || {};
       var c = o.pct > 0 ? "up" : o.pct < 0 ? "down" : "";
       var col = c === "up" ? "var(--up)" : c === "down" ? "var(--down)" : "var(--faint)";
-      return '<button class="toprow ' + c + '" data-tk="' + esc(r.s) + '">' +
-        '<span class="rank">' + (i + 1) + "</span>" +
+      return '<div class="toprow ' + c + '" data-tk="' + esc(r.s) +
+        '" role="button" tabindex="0">' +
+        '<span class="rank">' + (i + 1) + "</span>" + starIcon(r.s) +
         '<span class="tinfo"><b>' + esc(r.s) + "</b>" +
           '<span class="tnm">' + esc(r.n) + "</span></span>" +
         '<svg class="tspark" viewBox="0 0 100 28" preserveAspectRatio="none">' +
@@ -482,7 +587,7 @@
         '<span class="tcell">$' + r.p + "</span>" +
         '<span class="tcell tpe">P/E ' + (f.pe == null ? "—" : num(f.pe, 1)) + "</span>" +
         '<span class="tcell tmc">' + (f.mc ? money(f.mc) : "—") + "</span>" +
-        '<span class="tpct">' + sign(o.pct) + "%</span></button>";
+        '<span class="tpct">' + sign(o.pct) + "%</span></div>";
     }).join("");
   }
 
@@ -520,6 +625,26 @@
   ];
   var SIGMAP = {};
   SIGNALS.forEach(function (x) { SIGMAP[x.k] = x; });
+
+  /* ป้ายบอกผลทดสอบย้อนหลังของสัญญาณนั้น
+
+     ตัวเลขคือ "ส่วนต่างจากค่าเฉลี่ยหุ้นทั้งหมดในวันเดียวกัน"
+     ถือต่ออีก 60 วันทำการ ไม่ใช่ผลตอบแทนดิบ
+     +2% แปลว่าเคยทำได้ดีกว่าหุ้นทั่วไป 2 จุดโดยเฉลี่ย                */
+  function btBadge(key) {
+    if (!BT || !BT.signals || !BT.signals[key]) return "";
+    var st2 = BT.signals[key]["h" + (BT.horizons ? BT.horizons[BT.horizons.length - 1] : 60)];
+    if (!st2) return "";
+    var cls = st2.n < (BT.min_samples || 100) ? "bt-none"
+            : Math.abs(st2.tstat) < 2 ? "bt-none"
+            : st2.excess_mean > 0 ? "bt-good" : "bt-bad";
+    var txt = st2.n < (BT.min_samples || 100) ? "ตัวอย่างน้อย"
+            : Math.abs(st2.tstat) < 2 ? "ไม่ต่างจากสุ่ม"
+            : (st2.excess_mean > 0 ? "+" : "") + st2.excess_mean.toFixed(1) + "%";
+    return ' <span class="btb ' + cls + '" title="ทดสอบย้อนหลัง ' +
+      (BT.years || 3) + " ปี · พบ " + st2.n + " ครั้ง · ถือต่อ 60 วันทำการ · " +
+      "ชนะตลาด " + st2.win_rate + '%">' + txt + "</span>";
+  }
 
   var sectorRet = null;      // ค่ากลางผลตอบแทน 1 เดือน แยกตามหมวด
 
@@ -604,6 +729,7 @@
     var mi = PERIODS.indexOf("1m"), di = PERIODS.indexOf("1d");
     var out = [], counts = {};
     D.rows.forEach(function (r) {
+      if (!passStar(r.s)) return;
       if (st.wSector && r.g !== st.wSector) return;
       if (themeSet && themeSet.indexOf(r.s) < 0) return;
       var sig = watchSignals(r);
@@ -646,7 +772,11 @@
     $("wNote").innerHTML =
       "พบ <b>" + out.length + "</b> ตัวที่เข้าเงื่อนไขอย่างน้อยหนึ่งข้อ · " +
       "คำนวณจากราคาปิดวันที่ <b>" + esc(D.meta.date) + "</b> · " +
-      "แตะชื่อสัญญาณเพื่อดูความหมาย · คลิกการ์ดเพื่อดูรายละเอียดหุ้น";
+      "คลิกการ์ดเพื่อดูรายละเอียดหุ้น" +
+      (BT ? "<br>ตัวเลขในวงเล็บข้างชื่อสัญญาณ = <b>ผลทดสอบย้อนหลัง " +
+            (BT.years || 3) + " ปี</b> ว่าเคยดีกว่าหรือแย่กว่าค่าเฉลี่ยหุ้นทั้งหมดกี่จุด " +
+            "เมื่อถือต่ออีก 60 วันทำการ (แตะป้ายเพื่อดูจำนวนครั้งที่พบ)"
+          : "");
 
     $("wEmpty").hidden = out.length > 0;
     $("wgrid").innerHTML = out.map(function (o) {
@@ -658,11 +788,12 @@
       var tags = o.sig.map(function (x) {
         var S = SIGMAP[x.k];
         return '<div class="wsig ' + S.side + '" title="' + esc(S.why) + '">' +
-          '<span class="wname">' + esc(S.name) + "</span>" +
+          '<span class="wname">' + esc(S.name) + btBadge(x.k) + "</span>" +
           '<span class="wdetail">' + esc(x.detail) + "</span></div>";
       }).join("");
-      return '<button class="wcard ' + cls + '" data-tk="' + esc(r.s) + '">' +
-        '<div class="row1"><span class="tk">' + esc(r.s) + "</span>" +
+      return '<div class="wcard ' + cls + '" data-tk="' + esc(r.s) +
+        '" role="button" tabindex="0">' +
+        '<div class="row1">' + starIcon(r.s) + '<span class="tk">' + esc(r.s) + "</span>" +
           '<span class="chg ' + (chg >= 0 ? "p" : "n") + '">' + sign(chg) + "%</span>" +
           '<span class="px">$' + r.p + "</span></div>" +
         '<div class="nm">' + esc(r.n) + (r.g ? " · " + esc(r.g) : "") + "</div>" +
@@ -670,7 +801,7 @@
           (m1 > 0 ? "up" : m1 < 0 ? "down" : "") + '">' +
           (m1 === null || m1 === undefined ? "—" : sign(m1) + "%") + "</b>" +
           (r.f && r.f.pe ? " · P/E " + num(r.f.pe, 1) : "") + "</div>" +
-        '<div class="wsigs">' + tags + "</div></button>";
+        '<div class="wsigs">' + tags + "</div></div>";
     }).join("");
   }
 
@@ -744,6 +875,7 @@
       var item = { r: r, e: e, p3: p3, quad: quad, age: daysSince((r.f || {}).mrq) };
       all.push(item);
 
+      if (!passStar(r.s)) return;
       if (st.eSector && r.g !== st.eSector) return;
       if (themeSet && themeSet.indexOf(r.s) < 0) return;
       if (q && (r.s + " " + r.n + " " + r.g).toLowerCase().indexOf(q) < 0) return;
@@ -804,8 +936,9 @@
                '</span><span class="ev">' + p.val + "</span></div>";
       }).join("");
       var qd = o.quad ? QT[o.quad] : null;
-      return '<button class="ecard2 g' + e.grade + '" data-tk="' + esc(r.s) + '">' +
-        '<div class="row1"><span class="tk">' + esc(r.s) + "</span>" +
+      return '<div class="ecard2 g' + e.grade + '" data-tk="' + esc(r.s) +
+        '" role="button" tabindex="0">' +
+        '<div class="row1">' + starIcon(r.s) + '<span class="tk">' + esc(r.s) + "</span>" +
           '<span class="chg ' + (chg >= 0 ? "p" : "n") + '">' + sign(chg) + "%</span>" +
           '<span class="px">$' + r.p + "</span></div>" +
         '<div class="nm">' + esc(r.n) + (r.g ? " · " + esc(r.g) : "") + "</div>" +
@@ -819,7 +952,7 @@
           (f.mrq ? "งบไตรมาสถึง " + thDate(f.mrq) +
                    (o.age !== null ? " (" + o.age + " วันก่อน)" : "") : "ไม่ทราบไตรมาส") +
           (f.ed ? " · ประกาศงบครั้งหน้า " + thDate(f.ed) : "") +
-        "</div></button>";
+        "</div></div>";
     }).join("");
   }
 
@@ -1034,7 +1167,8 @@
           (r.a ? ' <span class="up">เรียงสวย</span>' : "")
         : "—";
       return '<tr data-tk="' + esc(r.s) + '">' +
-        '<td class="csym"><b>' + esc(r.s) + "</b><span>" + esc(r.n) + "</span></td>" +
+        '<td class="csym">' + starIcon(r.s) + '<b>' + esc(r.s) + "</b>" +
+        "<span>" + esc(r.n) + "</span></td>" +
         "<td>$" + r.p + "</td>" +
         '<td class="' + (x.d1 >= 0 ? "up" : "down") + '">' + sign(x.d1 || 0) + "%</td>" +
         cell(x.r3 === null ? "—" : sign(x.r3) + "%", "r3", x.r3 > 0 ? "up" : "down") +
@@ -1062,14 +1196,141 @@
           '<span class="pbv">' + p.v.toFixed(0) + "</span>" +
           '<span class="pbn">' + esc(p.note) + "</span></div>";
       }).join("");
-      return '<button class="rcard" data-tk="' + esc(r.s) + '">' +
-        '<div class="row1"><span class="rrank">' + (i + 1) + "</span>" +
+      return '<div class="rcard" data-tk="' + esc(r.s) +
+        '" role="button" tabindex="0">' +
+        '<div class="row1"><span class="rrank">' + (i + 1) + "</span>" + starIcon(r.s) +
           '<span class="tk">' + esc(r.s) + "</span>" +
           '<span class="px">$' + r.p + "</span>" +
           '<span class="rscore">' + x.score.toFixed(0) + '<small>/100</small></span></div>' +
         '<div class="nm">' + esc(r.n) + "</div>" +
-        '<div class="pbars">' + bars + "</div></button>";
+        '<div class="pbars">' + bars + "</div></div>";
     }).join("");
+  }
+
+  /* ───────────────── หน้าที่ 7: ที่ติดดาว ───────────────── */
+
+  function renderStar() {
+    if (!D) return;
+    var tks = Object.keys(stars);
+    $("starEmpty").hidden = tks.length > 0;
+    $("starTab").textContent = "ที่ติดดาว" + (tks.length ? " (" + tks.length + ")" : "");
+
+    if (!tks.length) {
+      $("starlist").innerHTML = "";
+      $("sNote").textContent = "";
+      return;
+    }
+
+    var di = PERIODS.indexOf("1d"), mi = PERIODS.indexOf("1m");
+    var items = tks.map(function (tk) {
+      var r = byTicker[tk], st2 = stars[tk];
+      var since = null;
+      if (r && st2.px) since = (r.p / st2.px - 1) * 100;
+      return { tk: tk, r: r, s: st2, since: since };
+    });
+
+    var k = st.sSort;
+    items.sort(function (a, b) {
+      if (k === "sym") return a.tk.localeCompare(b.tk);
+      if (k === "since") return (b.since === null ? -1e9 : b.since) -
+                                (a.since === null ? -1e9 : a.since);
+      if (k === "d1") {
+        var av = a.r ? (a.r.r[di] || 0) : -1e9, bv = b.r ? (b.r.r[di] || 0) : -1e9;
+        return bv - av;
+      }
+      return (b.s.iso || "").localeCompare(a.s.iso || "");   // ใหม่สุดก่อน
+    });
+
+    var up = items.filter(function (x) { return x.since !== null && x.since > 0; }).length;
+    var dn = items.filter(function (x) { return x.since !== null && x.since < 0; }).length;
+    $("sNote").innerHTML =
+      "มี <b>" + items.length + "</b> ตัว · ตั้งแต่กดดาว บวก <b class='up'>" + up +
+      "</b> ลบ <b class='down'>" + dn + "</b> · " +
+      "ราคาเทียบกับวันที่กด ไม่ใช่ราคาที่ซื้อจริง";
+
+    $("starlist").innerHTML = items.map(function (x) {
+      var r = x.r, st2 = x.s;
+      if (!r) {
+        return '<div class="scard gone"><div class="row1">' + starIcon(x.tk) +
+          '<span class="tk">' + esc(x.tk) + "</span>" +
+          '<span class="sgone">ไม่มีข้อมูลแล้ว (อาจหลุดจากดัชนี)</span></div>' +
+          '<div class="snote"><textarea data-note="' + esc(x.tk) +
+          '" rows="2" placeholder="เหตุผลที่สนใจ…">' + esc(st2.note || "") +
+          "</textarea></div></div>";
+      }
+      var chg = r.r[di] || 0, m1 = r.r[mi];
+      var sc = x.since === null ? "" : (x.since > 0 ? "up" : x.since < 0 ? "down" : "");
+      var f = r.f || {};
+      return '<div class="scard ' + sc + '">' +
+        '<div class="row1">' + starIcon(x.tk) +
+          '<span class="tk" data-tk="' + esc(x.tk) + '" role="button" tabindex="0">' +
+            esc(x.tk) + "</span>" +
+          '<span class="chg ' + (chg >= 0 ? "p" : "n") + '">' + sign(chg) + "%</span>" +
+          '<span class="px">$' + r.p + "</span></div>" +
+        '<div class="nm">' + esc(r.n) + (r.g ? " · " + esc(r.g) : "") + "</div>" +
+        '<div class="smeta">' +
+          "<span>กดดาว " + thDate(st2.iso) +
+            (st2.px ? " ที่ $" + num(st2.px, 2) : "") + "</span>" +
+          (x.since === null ? ""
+            : '<span class="ssince ' + sc + '">ตั้งแต่นั้น ' + sign(x.since) + "%</span>") +
+          '<span>1 เดือน ' + (m1 === null || m1 === undefined ? "—" : sign(m1) + "%") + "</span>" +
+          (f.pe ? "<span>P/E " + num(f.pe, 1) + "</span>" : "") +
+        "</div>" +
+        '<div class="snote"><textarea data-note="' + esc(x.tk) +
+          '" rows="2" placeholder="เหตุผลที่สนใจ… (พิมพ์แล้วบันทึกเอง)">' +
+          esc(st2.note || "") + "</textarea></div></div>";
+    }).join("");
+  }
+
+  function exportStars() {
+    var payload = { app: "ai-map", version: 1,
+                    exported: new Date().toISOString(), stars: stars };
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)],
+             { type: "application/json" }));
+    a.download = "หุ้นที่ติดดาว-" + new Date().toISOString().slice(0, 10) + ".json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function importStars(file) {
+    var fr = new FileReader();
+    fr.onload = function () {
+      try {
+        var d = JSON.parse(fr.result);
+        var incoming = d && d.stars ? d.stars : d;
+        if (typeof incoming !== "object" || incoming === null || Array.isArray(incoming)) {
+          throw new Error("รูปแบบไม่ถูก");
+        }
+        var added = 0, kept = 0;
+        Object.keys(incoming).forEach(function (tk) {
+          if (stars[tk]) { kept++; return; }         // ของเดิมไม่ทับ
+          var v = incoming[tk] || {};
+          stars[tk] = { ts: v.ts || "", iso: v.iso || "", px: v.px || null,
+                        note: typeof v.note === "string" ? v.note : "" };
+          added++;
+        });
+        saveStars();
+        refreshAll();
+        alert("นำเข้าสำเร็จ เพิ่มใหม่ " + added + " ตัว" +
+              (kept ? " · มีอยู่แล้ว " + kept + " ตัว (ไม่ทับของเดิม)" : ""));
+      } catch (e) {
+        alert("ไฟล์ไม่ถูกต้อง — ต้องเป็นไฟล์ที่ส่งออกจากหน้านี้เท่านั้น");
+      }
+    };
+    fr.readAsText(file);
+  }
+
+  /* วาดใหม่ทุกหน้าที่มีปุ่มดาว เพื่อให้สถานะดาวตรงกันทั้งเว็บ */
+  function refreshAll() {
+    syncStarFilterButtons();
+    renderMap();
+    renderEma();
+    renderTop();
+    renderWatch();
+    renderEarn();
+    renderCmp();
+    renderStar();
   }
 
   /* ───────────────── หน้าต่างรายละเอียด ───────────────── */
@@ -1336,8 +1597,9 @@
         st.page = t.dataset.page;
         var TITLE = { map: "AI Map", ema: "หุ้นที่ราคาใกล้เส้น EMA",
                       top: "หุ้นโตแรง", watch: "หุ้นที่น่าจับตามอง",
-                      earn: "ผลประกอบการไตรมาส", cmp: "เทียบหุ้นในหมวดเดียวกัน" };
-        ["map", "ema", "top", "watch", "earn", "cmp"].forEach(function (k) {
+                      earn: "ผลประกอบการไตรมาส", cmp: "เทียบหุ้นในหมวดเดียวกัน",
+                      star: "หุ้นที่ติดดาวไว้" };
+        ["map", "ema", "top", "watch", "earn", "cmp", "star"].forEach(function (k) {
           var pg = $("page" + k.charAt(0).toUpperCase() + k.slice(1));
           var ft = $("foot" + k.charAt(0).toUpperCase() + k.slice(1));
           if (pg) pg.hidden = (k !== st.page);
@@ -1399,6 +1661,28 @@
     $("cSort").addEventListener("change", function (e) {
       st.cSort = e.target.value; renderCmp();
     });
+    seg("sSort", "sSort", null, renderStar);
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest(".starfilter");
+      if (!b) return;
+      st.onlyStar = !st.onlyStar;
+      syncStarFilterButtons();
+      refreshAll();
+    });
+    $("sExport").addEventListener("click", exportStars);
+    $("sImport").addEventListener("click", function () { $("sFile").click(); });
+    $("sFile").addEventListener("change", function (e) {
+      if (e.target.files && e.target.files[0]) importStars(e.target.files[0]);
+      e.target.value = "";
+    });
+    // บันทึกเหตุผลอัตโนมัติเมื่อพิมพ์เสร็จแล้วคลิกออก
+    document.addEventListener("change", function (e) {
+      var t = e.target;
+      if (t && t.dataset && t.dataset.note !== undefined) {
+        var tk = t.dataset.note;
+        if (stars[tk]) { stars[tk].note = t.value; saveStars(); }
+      }
+    });
 
     var timer;
     function later(fn) { clearTimeout(timer); timer = setTimeout(fn, 50); }
@@ -1416,6 +1700,13 @@
     });
 
     document.addEventListener("click", function (e) {
+      // ดาวต้องตรวจก่อนการ์ด ไม่งั้นจะไปเปิดหน้าต่างรายละเอียดแทน
+      var sBtn = e.target.closest("[data-star]");
+      if (sBtn) {
+        e.stopPropagation();
+        toggleStar(sBtn.dataset.star);
+        return;
+      }
       var m = e.target.closest("[data-more]");
       if (m) {
         var k = m.dataset.more;
@@ -1432,6 +1723,16 @@
     });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") closeModal();
+      if (e.key === "Enter" || e.key === " ") {
+        var el = document.activeElement;
+        if (el && el.dataset && el.dataset.star) {
+          e.preventDefault();
+          toggleStar(el.dataset.star);
+        } else if (el && el.dataset && el.dataset.tk && el.tagName !== "TEXTAREA") {
+          e.preventDefault();
+          openStock(el.dataset.tk);
+        }
+      }
     });
 
     $("csv").addEventListener("click", function () {
