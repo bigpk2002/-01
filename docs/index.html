@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#070b13">
 <title>AI Map — แผนที่หุ้น AI และตัวหาเส้น EMA</title>
 <meta name="description" content="แผนที่หุ้น AI ตามธีมธุรกิจ และตัวหาหุ้นที่ราคาใกล้เส้น EMA จาก S&P 500 + Nasdaq 100">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 <div class="wrap">
@@ -18,6 +18,7 @@
     <button class="tab" data-page="watch">น่าจับตามอง</button>
     <button class="tab" data-page="earn">ผลประกอบการ</button>
     <button class="tab" data-page="cmp">เทียบในหมวด</button>
+    <button class="tab" data-page="star" id="starTab">ที่ติดดาว</button>
     <span class="badge" id="demoBadge" hidden>ข้อมูลจำลอง</span>
   </nav>
 
@@ -42,6 +43,7 @@
           <button data-v="up">เฉพาะตัวบวก</button>
           <button data-v="down">เฉพาะตัวลบ</button>
         </div>
+        <button class="starfilter" data-sf="1" title="แสดงเฉพาะหุ้นที่ติดดาว">★ เฉพาะที่ติดดาว</button>
       </div>
       <div class="line">
         <div class="seg" id="topN">
@@ -107,6 +109,7 @@
           <button data-v="above">เหนือเส้น</button><button data-v="below">ใต้เส้น</button>
         </div>
         <div class="seg lines" id="lines"><span class="lab">นับเฉพาะเส้น</span></div>
+        <button class="starfilter" data-sf="1" title="แสดงเฉพาะหุ้นที่ติดดาว">★ เฉพาะที่ติดดาว</button>
       </div>
 
       <div class="line">
@@ -166,6 +169,7 @@
           <button data-v="big">ใหญ่ (เกิน 1 หมื่นล้าน)</button>
           <button data-v="mid">กลางลงมา</button>
         </div>
+        <button class="starfilter" data-sf="1" title="แสดงเฉพาะหุ้นที่ติดดาว">★ เฉพาะที่ติดดาว</button>
       </div>
     </div>
     <p class="hint" id="topNote"></p>
@@ -188,6 +192,7 @@
       </div>
       <div class="line">
         <div class="seg lines" id="wSignal"><span class="lab">เฉพาะสัญญาณ</span></div>
+        <button class="starfilter" data-sf="1" title="แสดงเฉพาะหุ้นที่ติดดาว">★ เฉพาะที่ติดดาว</button>
       </div>
     </div>
     <p class="hint" id="wNote"></p>
@@ -235,6 +240,7 @@
           <option value="eg">เรียง: กำไรโตมากสุด</option>
           <option value="recent">เรียง: รายงานงบล่าสุด</option>
         </select>
+        <button class="starfilter" data-sf="1" title="แสดงเฉพาะหุ้นที่ติดดาว">★ เฉพาะที่ติดดาว</button>
       </div>
     </div>
     <div class="stats" id="eStats"></div>
@@ -294,6 +300,34 @@
     <p class="empty" id="cEmpty" hidden>กลุ่มนี้ยังไม่มีข้อมูลพอเปรียบเทียบ</p>
   </section>
 
+  <!-- ─────────── หน้าที่ 7: ที่ติดดาว ─────────── -->
+  <section id="pageStar" hidden>
+    <div class="panel">
+      <div class="line">
+        <div class="seg" id="sSort">
+          <span class="lab">เรียง</span>
+          <button class="on" data-v="added">วันที่กดดาว</button>
+          <button data-v="since">เปลี่ยนแปลงตั้งแต่มาร์ค</button>
+          <button data-v="d1">วันนี้</button>
+          <button data-v="sym">ชื่อย่อ</button>
+        </div>
+        <button id="sExport" class="ghost">ส่งออกเป็นไฟล์</button>
+        <button id="sImport" class="ghost">นำเข้าจากไฟล์</button>
+        <input type="file" id="sFile" accept=".json" hidden>
+      </div>
+      <p class="snote-sum" id="sNote"></p>
+    </div>
+    <div class="stars" id="starlist"></div>
+    <div id="starEmpty" hidden>
+      <div class="notice">
+        <p><b>ยังไม่มีหุ้นที่ติดดาว</b></p>
+        <p>กดรูปดาว ☆ บนการ์ดหุ้นในหน้าไหนก็ได้ เพื่อเพิ่มเข้ารายการนี้</p>
+        <p>ระบบจะจำ <b>ราคา ณ วันที่กด</b> ไว้ด้วย ทำให้ย้อนดูได้ว่าตั้งแต่สนใจมา ราคาไปทางไหน
+          และมีช่องให้พิมพ์เหตุผลว่าทำไมถึงสนใจ</p>
+      </div>
+    </div>
+  </section>
+
   <!-- ─────────── หน้าต่างรายละเอียดหุ้น ─────────── -->
   <div class="modal" id="modal" hidden>
     <div class="sheet">
@@ -311,6 +345,17 @@
       <p><b>วิธีอ่าน</b> — จัดอันดับจาก % เปลี่ยนแปลงของช่วงเวลาที่เลือก คำนวณจากราคาปิดที่ปรับปันผลและการแตกพาร์แล้ว</p>
       <p>หุ้นที่มีประวัติราคาไม่ครบช่วงเวลาที่เลือกจะไม่ถูกจัดอันดับ (เช่นเพิ่งเข้าตลาด 3 เดือนแต่เลือกดู 1 ปี)</p>
       <p>ตัวที่ขึ้นแรงมากมักผันผวนสูงตามไปด้วย ควรดูค่า P/E และขนาดบริษัทประกอบ</p>
+    </div>
+    <div id="footStar" hidden>
+      <p><b>เก็บไว้ที่ไหน</b> — ในเบราว์เซอร์ของเครื่องนี้เท่านั้น
+        เพราะเว็บเป็นไฟล์นิ่งบน GitHub Pages ไม่มีฐานข้อมูลและไม่มีระบบล็อกอิน</p>
+      <p><b>ข้อควรรู้</b> — กดดาวบนคอมแล้วเปิดบนมือถือจะไม่เห็น · ล้างข้อมูลเบราว์เซอร์แล้วหาย ·
+        ใช้ปุ่ม <b>ส่งออกเป็นไฟล์</b> เก็บสำรองไว้ แล้ว <b>นำเข้า</b> ตอนย้ายเครื่อง</p>
+      <p><b>ช่องเหตุผล</b> คือส่วนที่มีค่าที่สุดของหน้านี้ — พิมพ์ไว้ว่าทำไมถึงสนใจตอนนั้น
+        ผ่านไปสองสามเดือนกลับมาอ่าน จะรู้ว่าเหตุผลตอนนั้นถูกหรือผิด
+        การเรียนรู้จากการตัดสินใจของตัวเองมีค่ากว่าสัญญาณใด ๆ</p>
+      <p class="disc">ราคา ณ วันที่มาร์คคือราคาปิดของวันนั้น ไม่ใช่ราคาที่คุณซื้อจริง
+        และไม่ได้คิดค่าคอมมิชชันหรือปันผล</p>
     </div>
     <div id="footCmp" hidden>
       <p><b>ตารางเทียบ</b> — ป้าย <span class="hl">ดีสุด</span> ในแต่ละคอลัมน์คือผู้นำด้านนั้น
@@ -353,6 +398,6 @@
   </footer>
 </div>
 
-<script src="app.js?v=10"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
