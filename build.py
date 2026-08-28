@@ -34,6 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "docs", "data.json")
 FUND_PATH = os.path.join(HERE, "docs", "fundamentals.json")
 WEEKLY_PATH = os.path.join(HERE, "docs", "weekly.json")
+BACKTEST_PATH = os.path.join(HERE, "docs", "backtest.json")
 
 EMAS = [5, 10, 20, 50, 100, 200]
 PERIODS = ["1d", "1w", "1m", "3m", "ytd", "1y"]
@@ -1110,6 +1111,25 @@ def main() -> int:
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
+
+    # ── รับประกันว่าไฟล์ในโฟลเดอร์ docs มีครบทุกรอบ ──
+    # ถ้าไฟล์ไหนหาย ขั้นตอน git add ใน GitHub Actions จะพังทั้งขั้นตอน (exit 128)
+    # จึงสร้างไฟล์เปล่าไว้แทนที่จะปล่อยให้ไม่มี
+    if not os.path.exists(BACKTEST_PATH):
+        with open(BACKTEST_PATH, "w", encoding="utf-8") as f:
+            json.dump({"generated": None, "signals": {},
+                       "note": "ยังไม่ได้ทดสอบย้อนหลัง — รัน python backtest.py"},
+                      f, ensure_ascii=False)
+        print("สร้างไฟล์ backtest.json เปล่าไว้ (ยังไม่ได้ทดสอบย้อนหลัง)")
+
+    if not os.path.exists(FUND_PATH):
+        save_fundamentals(fund if isinstance(fund, dict) else {})
+        print("สร้างไฟล์ fundamentals.json ไว้ (ยังไม่มีข้อมูลพื้นฐาน)")
+
+    if not os.path.exists(WEEKLY_PATH):
+        save_weekly(wk if isinstance(wk, dict) and wk else
+                    {"updated": None, "date": "-", "rows": {}})
+        print("สร้างไฟล์ weekly.json ไว้ (ยังไม่มีข้อมูลรายสัปดาห์)")
 
     size = os.path.getsize(OUT) / 1024
     print(f"เขียนไฟล์ -> {OUT} ({size:.0f} KB)")
