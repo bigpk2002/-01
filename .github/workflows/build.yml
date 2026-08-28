@@ -66,14 +66,37 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f docs/data.json docs/fundamentals.json docs/weekly.json docs/backtest.json
+
+          # เพิ่มเฉพาะไฟล์ที่มีอยู่จริง
+          # ถ้า git add ไปอ้างไฟล์ที่ไม่มี จะพังทั้งขั้นตอนด้วย exit code 128
+          for f in docs/data.json docs/fundamentals.json docs/weekly.json docs/backtest.json; do
+            if [ -f "$f" ]; then
+              git add -f "$f"
+              echo "เพิ่ม $f"
+            else
+              echo "ข้าม $f (ยังไม่มีไฟล์)"
+            fi
+          done
+
           if git diff --quiet --cached; then
             echo "ข้อมูลไม่เปลี่ยน ไม่ต้องคอมมิต"
-          else
-            git commit -m "ข้อมูล ณ $(date -u '+%Y-%m-%d %H:%M UTC')"
-            git pull --rebase --autostash || true
-            git push
+            exit 0
           fi
+
+          git commit -m "ข้อมูล ณ $(date -u '+%Y-%m-%d %H:%M UTC')"
+
+          # ลองส่งขึ้นสูงสุด 3 ครั้ง เผื่อมีการคอมมิตอื่นแทรกเข้ามาระหว่างนั้น
+          for i in 1 2 3; do
+            if git push; then
+              echo "ส่งขึ้นสำเร็จ"
+              exit 0
+            fi
+            echo "ส่งไม่สำเร็จ ลองดึงของใหม่มารวมแล้วส่งอีกครั้ง ($i/3)"
+            git pull --rebase --autostash || true
+            sleep 5
+          done
+          echo "::error::ส่งขึ้น GitHub ไม่สำเร็จหลังลอง 3 ครั้ง"
+          exit 1
 
       - name: แจ้งเตือน Telegram
         env:
