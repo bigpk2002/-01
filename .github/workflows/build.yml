@@ -1,12 +1,12 @@
 name: อัปเดตข้อมูลหุ้น
 
 on:
-  # 01:00 UTC = 08:00 เช้าเวลาไทย
-  # ใส่ 2-6 (อังคาร-เสาร์ ตามเวลา UTC) เพราะตลาดสหรัฐปิดคืนก่อนหน้า
-  #   เช้าวันอังคารไทย = ได้ข้อมูลของวันจันทร์
-  #   เช้าวันเสาร์ไทย  = ได้ข้อมูลของวันศุกร์
+  # 21:30 UTC จันทร์-ศุกร์ = ประมาณ 1 ชั่วโมงหลังตลาดสหรัฐปิด (16:00 ET)
+  # ตรงกับตี 4 ครึ่ง เวลาไทยของเช้าวันถัดไป (อังคาร-เสาร์)
+  #   คืนวันจันทร์ตลาดปิด -> ได้ข้อมูลตอนตี 4 ครึ่งเช้าวันอังคารไทย
+  #   คืนวันศุกร์ตลาดปิด  -> ได้ข้อมูลตอนตี 4 ครึ่งเช้าวันเสาร์ไทย
   schedule:
-    - cron: "0 1 * * 2-6"
+    - cron: "30 21 * * 1-5"
   # กดรันเองได้จากแท็บ Actions
   workflow_dispatch:
     inputs:
@@ -66,7 +66,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f docs/data.json docs/fundamentals.json docs/weekly.json
+          git add -f docs/data.json docs/fundamentals.json docs/weekly.json docs/backtest.json
           if git diff --quiet --cached; then
             echo "ข้อมูลไม่เปลี่ยน ไม่ต้องคอมมิต"
           else
