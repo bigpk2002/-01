@@ -6,13 +6,14 @@
 <meta name="theme-color" content="#070b13">
 <title>AI Map — แผนที่หุ้น AI และตัวหาเส้น EMA</title>
 <meta name="description" content="แผนที่หุ้น AI ตามธีมธุรกิจ และตัวหาหุ้นที่ราคาใกล้เส้น EMA จาก S&P 500 + Nasdaq 100">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 <div class="wrap">
 
   <nav class="tabs">
-    <button class="tab on" data-page="map">AI Map</button>
+    <button class="tab on" data-page="today">เช้านี้</button>
+    <button class="tab" data-page="map">AI Map</button>
     <button class="tab" data-page="ema">หาเส้น EMA</button>
     <button class="tab" data-page="top">หุ้นโตแรง</button>
     <button class="tab" data-page="watch">น่าจับตามอง</button>
@@ -23,12 +24,34 @@
   </nav>
 
   <header>
-    <h1 id="pageTitle">AI Map</h1>
+    <h1 id="pageTitle">เช้านี้</h1>
     <p class="meta" id="meta">กำลังโหลดข้อมูล…</p>
   </header>
 
+  <!-- ─────────── หน้าที่ 0: เช้านี้ ─────────── -->
+  <section id="pageToday">
+    <div class="panel">
+      <div class="line">
+        <div class="seg" id="tdScope">
+          <span class="lab">ขอบเขต</span>
+          <button class="on" data-v="all">ทั้งตลาด</button>
+          <button data-v="theme">เฉพาะหุ้นในธีม AI</button>
+          <button data-v="star">เฉพาะที่ติดดาว</button>
+        </div>
+        <div class="seg" id="tdCount">
+          <span class="lab">แสดงกลุ่มละ</span>
+          <button data-v="5">5</button>
+          <button class="on" data-v="10">10</button>
+          <button data-v="20">20</button>
+        </div>
+      </div>
+      <p class="snote-sum" id="tdNote"></p>
+    </div>
+    <div id="todaySections"></div>
+  </section>
+
   <!-- ─────────── หน้าที่ 1: AI Map ─────────── -->
-  <section id="pageMap">
+  <section id="pageMap" hidden>
     <div class="panel">
       <div class="line">
         <div class="seg" id="period">
@@ -337,7 +360,17 @@
   </div>
 
   <footer>
-    <div id="footMap">
+    <div id="footToday">
+      <p><b>หน้านี้คืออะไร</b> — รวมสิ่งที่ต้องดูทุกเช้าไว้ในหน้าเดียว
+        แต่ละใบแสดงครบทั้งราคา เส้นที่ชน เกรดงบ และคะแนนรวม ไม่ต้องเปิดข้ามแท็บ</p>
+      <p><b>เพิ่งมาถึงเส้นวันนี้</b> — เมื่อวานยังไม่อยู่ในระยะ วันนี้เพิ่งเข้ามา
+        ต่างจากตัวที่ชนค้างมาหลายวันแล้ว ระบบเก็บสถานะของวันทำการก่อนหน้าไว้เทียบ</p>
+      <p><b>คะแนนรวม</b> เทียบกันทั้งตลาด 561 ตัว (ต่างจากแท็บเทียบในหมวดที่เทียบเฉพาะในกลุ่ม)
+        คิดจาก 4 ด้าน ด้านละ 25 คะแนน · กดที่ใบเพื่อดูรายละเอียด</p>
+      <p class="disc">ทุกตัวเลขคำนวณจากราคาปิดล่าสุด เป็นข้อมูลย้อนหลังทั้งหมด
+        ไม่ใช่คำแนะนำซื้อขาย</p>
+    </div>
+    <div id="footMap" hidden>
       <p>ค่ากลางของกลุ่มใช้ <b>median</b> ไม่ใช่ค่าเฉลี่ย เพราะหุ้นตัวใหญ่ที่วิ่งแรงมากจะดึงค่าเฉลี่ยเพี้ยนจนอ่านภาพรวมกลุ่มไม่ได้</p>
       <p>หุ้นที่มีประวัติราคาไม่ครบช่วงเวลาที่เลือกจะไม่ถูกนำมาแสดง</p>
     </div>
@@ -398,6 +431,6 @@
   </footer>
 </div>
 
-<script src="app.js?v=12"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
