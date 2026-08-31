@@ -69,7 +69,7 @@ jobs:
 
           # เพิ่มเฉพาะไฟล์ที่มีอยู่จริง
           # ถ้า git add ไปอ้างไฟล์ที่ไม่มี จะพังทั้งขั้นตอนด้วย exit code 128
-          for f in docs/data.json docs/fundamentals.json docs/weekly.json docs/backtest.json; do
+          for f in docs/data.json docs/fundamentals.json docs/weekly.json docs/backtest.json docs/prev.json; do
             if [ -f "$f" ]; then
               git add -f "$f"
               echo "เพิ่ม $f"
