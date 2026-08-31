@@ -35,6 +35,7 @@ OUT = os.path.join(HERE, "docs", "data.json")
 FUND_PATH = os.path.join(HERE, "docs", "fundamentals.json")
 WEEKLY_PATH = os.path.join(HERE, "docs", "weekly.json")
 BACKTEST_PATH = os.path.join(HERE, "docs", "backtest.json")
+PREV_PATH = os.path.join(HERE, "docs", "prev.json")
 
 EMAS = [5, 10, 20, 50, 100, 200]
 PERIODS = ["1d", "1w", "1m", "3m", "ytd", "1y"]
@@ -49,6 +50,9 @@ SLEEP_BETWEEN = 1.5
 FUND_PER_RUN = 300        # ดึงใหม่สูงสุดกี่ตัวต่อการรันหนึ่งครั้ง
 FUND_STALE_DAYS = 3       # ข้อมูลเก่ากว่ากี่วันถึงดึงใหม่ (วนครบทุกตัวใน ~2 วัน)
 FUND_SLEEP = 0.45         # พักระหว่างตัว (วินาที)
+QUARTER_MAX_AGE = 100     # ไตรมาสล่าสุดเก่ากว่ากี่วัน ถือว่าพลาดการรายงานไปรอบหนึ่ง
+                          # (หนึ่งไตรมาสราว 90 วัน เผื่อเวลารายงานอีก 10 วัน)
+NEAR_TOL = 1.5            # ระยะที่ถือว่า "ชนเส้น" ตอนเก็บสถานะไว้เทียบวันถัดไป
 SPLIT_GUARD = 0.35        # ราคาต่างจากตอนดึงเกินกี่เท่า ถือว่าข้อมูลใช้ไม่ได้แล้ว
 
 # เส้น EMA รายสัปดาห์ — แท่งหนึ่งแท่งคือหนึ่งสัปดาห์
@@ -512,7 +516,7 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
     today = datetime.now().date()
     prices = prices or {}
     todo, urgent = [], []
-    fake = 0
+    fake = reported = stale_q = 0
     for s in symbols:
         old = existing.get(s)
         if not old or not old.get("ts"):
@@ -542,6 +546,30 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
             urgent.append(s)
             continue
 
+        # ── วันประกาศงบที่เก็บไว้ผ่านไปแล้ว = บริษัทรายงานงบใหม่ไปแล้ว ──
+        # เป็นสัญญาณที่ตรงที่สุดว่าข้อมูลงบชุดที่มีอยู่ล้าสมัย
+        # ไม่ควรรอให้ครบรอบตามอายุ เพราะตัวเลขกำไร รายได้ และ P/E เปลี่ยนไปหมดแล้ว
+        ed = old.get("ed")
+        if ed:
+            try:
+                if datetime.fromisoformat(str(ed)).date() < today:
+                    urgent.append(s)
+                    reported += 1
+                    continue
+            except ValueError:
+                pass
+
+        # ไตรมาสล่าสุดเก่ากว่า 1 ไตรมาสเต็ม = น่าจะพลาดการรายงานไปรอบหนึ่ง
+        mrq = old.get("mrq")
+        if mrq:
+            try:
+                if (today - datetime.fromisoformat(str(mrq)).date()).days > QUARTER_MAX_AGE:
+                    urgent.append(s)
+                    stale_q += 1
+                    continue
+            except ValueError:
+                pass
+
         try:
             age = (today - datetime.fromisoformat(old["ts"]).date()).days
         except ValueError:
@@ -551,8 +579,12 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
 
     if fake:
         print(f"  พบข้อมูลจำลองค้างอยู่ {fake} ตัว จะดึงของจริงมาทับให้")
+    if reported:
+        print(f"  ประกาศงบใหม่ไปแล้ว {reported} ตัว จะดึงงบชุดใหม่มาแทน")
+    if stale_q:
+        print(f"  ไตรมาสล่าสุดเก่ากว่า {QUARTER_MAX_AGE} วัน {stale_q} ตัว")
     if urgent:
-        print(f"  ต้องดึงใหม่ด่วน {len(urgent)} ตัว")
+        print(f"  ต้องดึงใหม่ด่วนรวม {len(urgent)} ตัว")
     todo = urgent + todo
 
     fresh = len(symbols) - len(todo)
@@ -737,12 +769,32 @@ def refresh_ratios(f: dict, price: float) -> dict:
 
     # ราคาต่างจากตอนดึงเกิน 0.5% ถือว่ามีการปรับที่ผู้ใช้ควรรู้
     out["adj"] = 1 if abs(ratio - 1) > 0.005 else 0
+
+    # ติดธงเตือนถ้างบชุดนี้น่าจะล้าสมัยแล้ว
+    # เพื่อให้หน้าเว็บบอกผู้ใช้ตรง ๆ แทนที่จะแสดงตัวเลขเก่าเงียบ ๆ
+    today = datetime.now().date()
+    for key, flag in (("ed", "edold"), ("mrq", "qold")):
+        v = f.get(key)
+        if not v:
+            continue
+        try:
+            d0 = datetime.fromisoformat(str(v)).date()
+        except ValueError:
+            continue
+        if key == "ed" and d0 < today:
+            out["edold"] = (today - d0).days
+        elif key == "mrq" and (today - d0).days > QUARTER_MAX_AGE:
+            out["qold"] = (today - d0).days
     for k in ("px0", "sh", "nm", "sec"):
         out.pop(k, None)
     return out
 
 
 def load_weekly() -> dict:
+    if not os.path.exists(PREV_PATH):
+        save_prev({"date": None, "rows": {}})
+        print("สร้างไฟล์ prev.json ไว้ (ยังไม่มีสถานะวันก่อนหน้า)")
+
     if not os.path.exists(WEEKLY_PATH):
         return {}
     try:
@@ -840,6 +892,46 @@ def build_weekly(symbols: list[str], period: str = WEEKLY_PERIOD,
     print(f"  คำนวณได้ {len(rows)} ตัว (ครบทั้ง 6 เส้น {full} ตัว)")
     return {"updated": datetime.now().isoformat(timespec="seconds"),
             "date": date, "rows": rows}
+
+
+def load_prev() -> dict:
+    """สถานะของวันทำการก่อนหน้า ใช้เทียบว่ามีอะไรเปลี่ยนไปบ้าง
+
+    เก็บเฉพาะสิ่งที่จำเป็นต่อการเทียบ ไม่ได้เก็บทุกอย่าง
+    เพราะไฟล์จะใหญ่โดยไม่จำเป็น
+    """
+    if not os.path.exists(PREV_PATH):
+        return {}
+    try:
+        with open(PREV_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"  ! อ่านไฟล์สถานะเดิมไม่ได้ ({e}) เริ่มเก็บใหม่")
+        return {}
+
+
+def snapshot(rows: list[dict], date: str) -> dict:
+    """ย่อสถานะวันนี้ให้เหลือเท่าที่ต้องใช้เทียบพรุ่งนี้"""
+    out = {}
+    for r in rows:
+        d = r.get("d")
+        if not d:
+            continue
+        # ระยะห่างที่ใกล้ที่สุดจากเส้นใดเส้นหนึ่ง และเส้นที่ชนอยู่
+        near = [EMAS[i] for i, x in enumerate(d) if abs(x) <= NEAR_TOL]
+        out[r["s"]] = {
+            "p": r["p"],
+            "t": r.get("t"),
+            "n": near,                       # เส้นที่อยู่ในระยะ ณ วันนั้น
+            "a": r.get("a", 0),
+        }
+    return {"date": date, "rows": out}
+
+
+def save_prev(snap: dict) -> None:
+    os.makedirs(os.path.dirname(PREV_PATH), exist_ok=True)
+    with open(PREV_PATH, "w", encoding="utf-8") as f:
+        json.dump(snap, f, ensure_ascii=False, separators=(",", ":"))
 
 
 def sector_medians(rows: list[dict], demo: bool = False) -> dict:
@@ -1086,6 +1178,53 @@ def main() -> int:
     for t in themes:
         t["tickers"] = [x for x in t["tickers"] if x in have]
 
+    # ── เทียบกับสถานะวันทำการก่อนหน้า ──
+    prev = load_prev()
+    prev_rows = prev.get("rows", {})
+    prev_date = prev.get("date")
+    today_str = str(last_date.date()) if last_date is not None else "-"
+    same_day = (prev_date == today_str)     # รันซ้ำวันเดิม ไม่ควรทับสถานะเดิม
+
+    fresh_touch = 0
+    if prev_rows and not same_day:
+        for r in rows:
+            d = r.get("d")
+            if not d:
+                continue
+            now_near = [EMAS[i] for i, x in enumerate(d) if abs(x) <= NEAR_TOL]
+            if not now_near:
+                continue
+            old_row = prev_rows.get(r["s"])
+            if old_row is None:
+                continue                    # หุ้นใหม่ ไม่นับว่า "เพิ่งมาถึง"
+            was_near = set(old_row.get("n") or [])
+            new_lines = [p for p in now_near if p not in was_near]
+            if new_lines:
+                # เพิ่งเข้าระยะเส้นเหล่านี้เป็นวันแรก
+                r["nw"] = new_lines
+                fresh_touch += 1
+            # เทรนด์เพิ่งเปลี่ยนวันนี้
+            if old_row.get("t") and r.get("t") and old_row["t"] != r["t"]:
+                r["tc"] = old_row["t"]      # เทรนด์เดิมก่อนเปลี่ยน
+
+    # เปลี่ยนแปลงของราคาเทียบวันก่อนหน้าที่เก็บไว้ (ใช้ตรวจสอบความต่อเนื่อง)
+    if prev_rows and not same_day:
+        for r in rows:
+            o = prev_rows.get(r["s"])
+            if o and o.get("p"):
+                r["pc"] = round((r["p"] / o["p"] - 1) * 100, 2) + 0.0
+
+    if prev_rows:
+        if same_day:
+            print(f"สถานะเดิมเป็นของวันเดียวกัน ({prev_date}) "
+                  f"ไม่คำนวณ 'เพิ่งมาถึงเส้น' และไม่ทับไฟล์")
+        else:
+            print(f"เทียบกับสถานะวันที่ {prev_date} · "
+                  f"เพิ่งมาถึงเส้นวันนี้ {fresh_touch} ตัว")
+    else:
+        print("ยังไม่มีสถานะวันก่อนหน้า — รอบหน้าจะเริ่มเทียบได้")
+    print()
+
     tz = timezone(timedelta(hours=7))
     payload = {
         "meta": {
@@ -1100,6 +1239,9 @@ def main() -> int:
             "warnings": warnings,
             "fund_count": sum(1 for r in rows if "f" in r),
             "weekly_count": sum(1 for r in rows if "w" in r),
+            "prev_date": prev_date,
+            "fresh_count": sum(1 for r in rows if "nw" in r),
+            "near_tol": NEAR_TOL,
             "weekly_date": wk.get("date", "-"),
             "sector_med": sector_medians(rows, a.demo),
         },
@@ -1126,16 +1268,28 @@ def main() -> int:
         save_fundamentals(fund if isinstance(fund, dict) else {})
         print("สร้างไฟล์ fundamentals.json ไว้ (ยังไม่มีข้อมูลพื้นฐาน)")
 
+    if not os.path.exists(PREV_PATH):
+        save_prev({"date": None, "rows": {}})
+        print("สร้างไฟล์ prev.json ไว้ (ยังไม่มีสถานะวันก่อนหน้า)")
+
     if not os.path.exists(WEEKLY_PATH):
         save_weekly(wk if isinstance(wk, dict) and wk else
                     {"updated": None, "date": "-", "rows": {}})
         print("สร้างไฟล์ weekly.json ไว้ (ยังไม่มีข้อมูลรายสัปดาห์)")
+
+    # เก็บสถานะวันนี้ไว้เทียบรอบหน้า
+    # ถ้ารันซ้ำวันเดิมจะไม่ทับ ไม่งั้น "เพิ่งมาถึงเส้น" จะหายไปทั้งหมด
+    if last_date is not None and not same_day:
+        save_prev(snapshot(rows, today_str))
+    elif not os.path.exists(PREV_PATH) and last_date is not None:
+        save_prev(snapshot(rows, today_str))
 
     size = os.path.getsize(OUT) / 1024
     print(f"เขียนไฟล์ -> {OUT} ({size:.0f} KB)")
     print(f"  หุ้นทั้งหมด {len(rows)} ตัว · คำนวณ EMA ได้ {payload['meta']['ema_count']} ตัว")
     print(f"  มีข้อมูลพื้นฐาน {payload['meta']['fund_count']} ตัว "
           f"· ค่ากลางรายหมวด {len(payload['meta']['sector_med'])} หมวด")
+    print(f"  เพิ่งมาถึงเส้นวันนี้ {payload['meta']['fresh_count']} ตัว")
     print(f"  มีเส้นรายสัปดาห์ {payload['meta']['weekly_count']} ตัว "
           f"· ข้อมูลถึงสัปดาห์ของวันที่ {payload['meta']['weekly_date']}")
     print(f"  ข้อมูลปิดตลาดวันที่ {payload['meta']['date']}")
@@ -1157,6 +1311,14 @@ def main() -> int:
                 and not (r["f"]["lo"] * 0.95 <= r["p"] <= r["f"]["hi"] * 1.05)]
         if outr:
             checks.append(f"ราคาอยู่นอกช่วง 52 สัปดาห์ {len(outr)} ตัว: {', '.join(outr[:6])}")
+        edold = [r["s"] for r in withf if r["f"].get("edold")]
+        if edold:
+            checks.append(f"เลยวันประกาศงบไปแล้วแต่ข้อมูลยังไม่อัปเดต {len(edold)} ตัว: "
+                          f"{', '.join(edold[:6])}")
+        qold = [r["s"] for r in withf if r["f"].get("qold")]
+        if qold:
+            checks.append(f"ไตรมาสล่าสุดเก่ากว่า {QUARTER_MAX_AGE} วัน {len(qold)} ตัว: "
+                          f"{', '.join(qold[:6])}")
         rech = [r["s"] for r in withf if r["f"].get("recheck")]
         if rech:
             checks.append(f"รอดึงข้อมูลใหม่ {len(rech)} ตัว (ข้อมูลเดิมไม่สอดคล้องกับราคา)")
