@@ -5,9 +5,15 @@
 (function () {
   "use strict";
 
-  var VERSION = "12";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "14";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
+  var PAGE_TITLE = {
+    today: "เช้านี้", map: "AI Map", ema: "หุ้นที่ราคาใกล้เส้น EMA",
+    top: "หุ้นโตแรง", watch: "หุ้นที่น่าจับตามอง",
+    earn: "ผลประกอบการไตรมาส", cmp: "เทียบหุ้นในหมวดเดียวกัน",
+    star: "หุ้นที่ติดดาวไว้"
+  };
   var PERIOD_TH = { "1d": "1 วัน", "1w": "1 สัปดาห์", "1m": "1 เดือน",
                     "3m": "3 เดือน", "ytd": "ต้นปีถึงปัจจุบัน", "1y": "1 ปี" };
   // เส้นยาวมีน้ำหนักมากกว่า เพราะเป็นแนวรับ/ต้านที่คนมองกันเยอะกว่า
@@ -15,6 +21,7 @@
 
   var st = {
     page: "map",
+    tdScope: "all", tdCount: 10,
     period: "1m", mapShow: "all", topN: 10, expanded: {},
     q: "", sector: "", theme: "", sort: "score",
     tf: "d", tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: [],
@@ -250,6 +257,199 @@
     renderEarn();
     renderCmp();
     renderStar();
+    renderToday();
+  }
+
+  /* ───────────────── หน้าที่ 0: เช้านี้ ─────────────────
+
+     รวมสิ่งที่ต้องดูทุกเช้าไว้หน้าเดียว ไม่ต้องเปิดข้ามแท็บ
+     ทุกส่วนคำนวณจากข้อมูลชุดเดียวกับแท็บอื่น จึงตรงกันเสมอ    */
+
+  function pctRank(v, arr) {
+    // อยู่อันดับที่เท่าไหร่ในกลุ่ม คืนค่า 0-1 (1 = ดีสุดในกลุ่ม)
+    if (v === null || v === undefined || arr.length < 2) return 0.5;
+    var below = arr.filter(function (x) { return x < v; }).length;
+    var same = arr.filter(function (x) { return x === v; }).length;
+    return (below + same / 2) / arr.length;
+  }
+
+  var marketScore = null;     // คะแนนรวมเทียบกันทั้งตลาด
+
+  function buildMarketScore() {
+    var qi = PERIODS.indexOf("3m");
+    var med = D.meta.sector_med || {};
+    var items = D.rows.map(function (r) {
+      var f = r.f || {};
+      var mp = (med[r.g] || {}).pe;
+      return {
+        r: r, e: earnScore(f), r3: r.r[qi],
+        cheap: (f.pe && mp) ? (mp / f.pe) : null
+      };
+    });
+    var a3 = items.map(function (x) { return x.r3; })
+                  .filter(function (v) { return v !== null && v !== undefined; });
+    var ach = items.map(function (x) { return x.cheap; })
+                   .filter(function (v) { return v !== null; });
+
+    marketScore = {};
+    items.forEach(function (x) {
+      var mom = pctRank(x.r3, a3) * 25;
+      var fun = x.e ? (x.e.score / 8) * 25 : 0;
+      var val = x.cheap === null ? 0 : pctRank(x.cheap, ach) * 25;
+      var tech = 0;
+      if (x.r.d) {
+        if (x.r.d[5] > 0) tech += 9;
+        if (x.r.d[3] > 0) tech += 5;
+        if (x.r.a) tech += 6;
+        if (x.r.w && x.r.w.t === "up") tech += 5;
+      }
+      marketScore[x.r.s] = {
+        score: Math.round((mom + fun + val + tech) * 10) / 10,
+        parts: [
+          { k: "โมเมนตัม", v: mom }, { k: "พื้นฐาน", v: fun },
+          { k: "ราคาถูก", v: val }, { k: "เทคนิค", v: tech }
+        ]
+      };
+    });
+  }
+
+  function tdPool() {
+    var rows = D.rows;
+    if (st.tdScope === "star") {
+      rows = rows.filter(function (r) { return !!stars[r.s]; });
+    } else if (st.tdScope === "theme") {
+      var inTheme = {};
+      (D.themes || []).forEach(function (t) {
+        t.tickers.forEach(function (x) { inTheme[x] = 1; });
+      });
+      rows = rows.filter(function (r) { return inTheme[r.s]; });
+    }
+    return rows;
+  }
+
+  /* การ์ดสรุปที่ใช้ร่วมกันทุกส่วนในหน้านี้
+     แสดงครบในใบเดียว: ราคา · วันนี้ · เส้นที่ชน · เกรดงบ · คะแนนรวม */
+  function tdCard(r, extra) {
+    var di = PERIODS.indexOf("1d"), mi = PERIODS.indexOf("1m");
+    var chg = r.r[di], m1 = r.r[mi];
+    var f = r.f || {};
+    var ms = marketScore ? marketScore[r.s] : null;
+    var e = earnScore(f);
+    var tol = D.meta.near_tol || 1.5;
+
+    var chips = "";
+    if (r.d) {
+      chips = '<div class="tdlines">' + EMAS.map(function (p, i) {
+        var dv = r.d[i];
+        var isNew = (r.nw || []).indexOf(p) >= 0;
+        var hit = Math.abs(dv) <= tol;
+        return '<span class="tdl' + (isNew ? " new" : hit ? " hit" : "") +
+          '" title="EMA' + p + " ห่าง " + sign(dv) + '%">' + p + "</span>";
+      }).join("") + "</div>";
+    }
+
+    var badges = "";
+    if (r.t) badges += '<span class="b ' + (r.t === "up" ? "up" : r.t === "down" ? "down" : "") +
+      '">' + (TREND_TH[r.t] || "") + "</span>";
+    if (e) badges += '<span class="gbadge g' + e.grade + '">งบ ' + e.gradeTh + "</span>";
+    if (r.tc) badges += '<span class="b sig">เทรนด์เปลี่ยนวันนี้ ' +
+      (TREND_TH[r.tc] || r.tc) + " → " + (TREND_TH[r.t] || r.t) + "</span>";
+
+    return '<div class="tdcard" data-tk="' + esc(r.s) + '" role="button" tabindex="0">' +
+      '<div class="row1">' + starIcon(r.s) +
+        '<span class="tk">' + esc(r.s) + "</span>" +
+        '<span class="chg ' + ((chg || 0) >= 0 ? "p" : "n") + '">' +
+          (chg === null || chg === undefined ? "—" : sign(chg) + "%") + "</span>" +
+        '<span class="px">$' + r.p + "</span>" +
+        (ms ? '<span class="tdscore" title="คะแนนรวมเทียบทั้งตลาด">' +
+              ms.score.toFixed(0) + "</span>" : "") + "</div>" +
+      '<div class="nm">' + esc(r.n) + (r.g ? " · " + esc(r.g) : "") + "</div>" +
+      (extra ? '<div class="tdextra">' + extra + "</div>" : "") +
+      chips +
+      '<div class="badges">' + badges + "</div>" +
+      '<div class="tdfoot">1 เดือน ' +
+        (m1 === null || m1 === undefined ? "—" : sign(m1) + "%") +
+        (f.pe ? " · P/E " + num(f.pe, 1) : "") +
+        (f.mc ? " · " + money(f.mc) : "") + "</div></div>";
+  }
+
+  function tdSection(title, why, list, extraFn) {
+    if (!list.length) {
+      return '<section class="tdsec"><div class="tdhead"><h2>' + title + "</h2>" +
+        '<span class="tdwhy">' + why + "</span></div>" +
+        '<p class="none">ไม่มีตัวที่เข้าเงื่อนไขในขอบเขตที่เลือก</p></section>';
+    }
+    return '<section class="tdsec"><div class="tdhead"><h2>' + title +
+      ' <span class="tdn">' + list.length + "</span></h2>" +
+      '<span class="tdwhy">' + why + "</span></div>" +
+      '<div class="tdgrid">' +
+      list.map(function (r) { return tdCard(r, extraFn ? extraFn(r) : ""); }).join("") +
+      "</div></section>";
+  }
+
+  function renderToday() {
+    if (!D) return;
+    if (!marketScore) buildMarketScore();
+
+    var pool = tdPool();
+    var n = st.tdCount;
+    var di = PERIODS.indexOf("1d");
+    var tol = D.meta.near_tol || 1.5;
+
+    // 1) ลงแรงวันนี้
+    var down = pool.filter(function (r) {
+      return r.r[di] !== null && r.r[di] !== undefined && r.r[di] < 0;
+    }).sort(function (a, b) { return a.r[di] - b.r[di]; }).slice(0, n);
+
+    // 2) เพิ่งมาถึงเส้นวันนี้
+    var fresh = pool.filter(function (r) { return (r.nw || []).length; })
+      .sort(function (a, b) {
+        // เส้นยาวสำคัญกว่า แล้วค่อยดูว่าลงแรงกว่า
+        var la = Math.max.apply(null, a.nw), lb = Math.max.apply(null, b.nw);
+        return lb - la || (a.r[di] || 0) - (b.r[di] || 0);
+      }).slice(0, n);
+
+    // 3) คะแนนรวมสูงสุดทั้งตลาด
+    var top = pool.slice().sort(function (a, b) {
+      var sa = marketScore[a.s] ? marketScore[a.s].score : -1;
+      var sb = marketScore[b.s] ? marketScore[b.s].score : -1;
+      return sb - sa;
+    }).slice(0, n);
+
+    // 4) ที่ติดดาว
+    var starred = D.rows.filter(function (r) { return !!stars[r.s]; })
+      .sort(function (a, b) { return (a.r[di] || 0) - (b.r[di] || 0); });
+
+    var html = "";
+    html += tdSection("ลงแรงวันนี้",
+      "เรียงจากลงหนักสุด · ตัวเลขในกล่องคือเส้น EMA ที่ราคาอยู่ในระยะ " +
+      tol.toFixed(1) + "%", down);
+
+    html += tdSection("เพิ่งมาถึงเส้นวันนี้",
+      D.meta.prev_date
+        ? "เมื่อวาน (" + thDate(D.meta.prev_date) + ") ยังไม่อยู่ในระยะ วันนี้เพิ่งเข้ามา · " +
+          "เส้นสีเหลืองคือเส้นที่เพิ่งชน"
+        : "ยังไม่มีข้อมูลของวันก่อนหน้าไว้เทียบ — รอบถัดไปจะเริ่มแสดงได้",
+      fresh);
+
+    html += tdSection("คะแนนรวมสูงสุดทั้งตลาด",
+      "เทียบกันทั้ง " + D.meta.count + " ตัว · เลข 4 ด้านรวมเป็น 100 · " +
+      "<b>อันดับสูงไม่ได้แปลว่าน่าซื้อ</b> เป็นแค่ตัวที่ตัวเลขดูดีที่สุด", top);
+
+    if (starCount()) {
+      html += tdSection("ที่ติดดาวไว้ วันนี้เป็นยังไง",
+        "เรียงจากลงหนักสุด · ครบทุกตัวที่มาร์คไว้", starred);
+    }
+
+    $("todaySections").innerHTML = html;
+
+    var scopeTh = { all: "ทั้งตลาด", theme: "เฉพาะหุ้นในธีม AI", star: "เฉพาะที่ติดดาว" };
+    $("tdNote").innerHTML =
+      "ข้อมูลปิดตลาดวันที่ <b>" + esc(D.meta.date) + "</b> · ขอบเขต <b>" +
+      scopeTh[st.tdScope] + "</b> (" + pool.length + " ตัว)" +
+      (D.meta.prev_date ? " · เทียบกับวันที่ " + thDate(D.meta.prev_date) : "") +
+      (st.tdScope === "star" && !starCount()
+        ? " — ยังไม่มีหุ้นที่ติดดาว กดรูปดาวบนการ์ดเพื่อเพิ่ม" : "");
   }
 
   /* ───────────────── หน้าที่ 1: AI Map ───────────────── */
@@ -948,6 +1148,13 @@
           '<span class="p3">3 เดือน ' +
           (o.p3 === null || o.p3 === undefined ? "—" : sign(o.p3) + "%") + "</span></div>" +
         '<div class="ebars">' + bars + "</div>" +
+        (f.edold || f.qold
+          ? '<div class="staleq">' +
+            (f.edold
+              ? "เลยวันประกาศงบมา " + f.edold + " วันแล้ว — ตัวเลขที่แสดงยังเป็นงบไตรมาสก่อน"
+              : "ไตรมาสล่าสุดเก่ากว่า " + f.qold + " วัน อาจมีงบใหม่ที่ยังไม่ได้ดึง") +
+            "</div>"
+          : "") +
         '<div class="efoot2">' +
           (f.mrq ? "งบไตรมาสถึง " + thDate(f.mrq) +
                    (o.age !== null ? " (" + o.age + " วันก่อน)" : "") : "ไม่ทราบไตรมาส") +
@@ -966,13 +1173,6 @@
 
      ย้ำ: ทุกอย่างคำนวณจากข้อมูลย้อนหลัง ไม่เคยทดสอบว่าทำนายได้จริง     */
 
-  function pctRank(v, arr) {
-    // อยู่อันดับที่เท่าไหร่ในกลุ่ม คืนค่า 0-1 (1 = ดีสุดในกลุ่ม)
-    if (v === null || v === undefined || arr.length < 2) return 0.5;
-    var below = arr.filter(function (x) { return x < v; }).length;
-    var same = arr.filter(function (x) { return x === v; }).length;
-    return (below + same / 2) / arr.length;
-  }
 
   function cmpMembers() {
     var list = [];
@@ -1324,6 +1524,7 @@
   /* วาดใหม่ทุกหน้าที่มีปุ่มดาว เพื่อให้สถานะดาวตรงกันทั้งเว็บ */
   function refreshAll() {
     syncStarFilterButtons();
+    renderToday();
     renderMap();
     renderEma();
     renderTop();
@@ -1490,6 +1691,14 @@
             return '<div class="ebar p' + p.p + '"><span class="ek">' + p.label +
                    '</span><span class="ev">' + p.val + "</span></div>";
           }).join("") + "</div>" +
+          (f.edold || f.qold
+            ? '<div class="staleq">' +
+              (f.edold
+                ? "เลยวันประกาศงบมา " + f.edold +
+                  " วันแล้ว ตัวเลขด้านบนยังเป็นงบไตรมาสก่อน · ระบบจัดคิวดึงงบใหม่ให้แล้ว"
+                : "ไตรมาสล่าสุดเก่ากว่า " + f.qold + " วัน อาจมีงบใหม่ที่ยังไม่ได้ดึง") +
+              "</div>"
+            : "") +
           (f.mrq ? '<p class="mnote">งบไตรมาสถึงวันที่ ' + thDate(f.mrq) +
                    (f.ed ? " · ประกาศงบครั้งหน้า " + thDate(f.ed) : "") + "</p>" : "");
       })() +
@@ -1595,11 +1804,9 @@
         document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("on"); });
         t.classList.add("on");
         st.page = t.dataset.page;
-        var TITLE = { map: "AI Map", ema: "หุ้นที่ราคาใกล้เส้น EMA",
-                      top: "หุ้นโตแรง", watch: "หุ้นที่น่าจับตามอง",
-                      earn: "ผลประกอบการไตรมาส", cmp: "เทียบหุ้นในหมวดเดียวกัน",
-                      star: "หุ้นที่ติดดาวไว้" };
-        ["map", "ema", "top", "watch", "earn", "cmp", "star"].forEach(function (k) {
+        var TITLE = PAGE_TITLE;
+        ["today", "map", "ema", "top", "watch", "earn", "cmp", "star"]
+          .forEach(function (k) {
           var pg = $("page" + k.charAt(0).toUpperCase() + k.slice(1));
           var ft = $("foot" + k.charAt(0).toUpperCase() + k.slice(1));
           if (pg) pg.hidden = (k !== st.page);
@@ -1610,6 +1817,8 @@
       });
     });
 
+    seg("tdScope", "tdScope", null, renderToday);
+    seg("tdCount", "tdCount", Number, renderToday);
     seg("period", "period", null, renderMap);
     seg("mapShow", "mapShow", null, renderMap);
     seg("topN", "topN", Number, function () {
