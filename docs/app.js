@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "14";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "15";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PAGE_TITLE = {
@@ -28,6 +28,7 @@
     topPeriod: "1m", topDir: "up", topSector: "", topTheme: "",
     topCount: 10, topCap: "all",
     wSide: "all", wSector: "", wTheme: "", wSignal: "",
+    eView: "cal", eOpen: {}, eSecOpen: {},
     eQuad: "all", eGrade: "all", eRecent: "all",
     eQ: "", eSector: "", eTheme: "", eSort: "score",
     cMode: "theme", cGroup: "", cView: "table", cSort: "score",
@@ -1050,6 +1051,50 @@
     return Math.floor((Date.now() - t) / 86400000);
   }
 
+  /* ปฏิทินประกาศงบ — จัดกลุ่มตามว่าจะประกาศเมื่อไหร่
+
+     เรียงจากใกล้ที่สุดขึ้นก่อน เพื่อให้เห็นทันทีว่าวันนี้มีตัวไหนประกาศ
+     ตัวที่เลยกำหนดแล้ว (Yahoo ยังไม่อัปเดต) แยกไปท้ายสุด
+     เพื่อไม่ให้บังของที่กำลังจะเกิดขึ้นจริง                              */
+
+  var EARN_BUCKETS = [
+    { k: "today", icon: "📢", name: "ประกาศวันนี้",
+      why: "บริษัทรายงานผลประกอบการวันนี้" },
+    { k: "week", icon: "📅", name: "ภายในสัปดาห์นี้",
+      why: "อีก 1–7 วันข้างหน้า" },
+    { k: "month", icon: "🗓", name: "ภายในเดือนนี้",
+      why: "อีก 8–31 วันข้างหน้า" },
+    { k: "later", icon: "⏳", name: "อีกนาน",
+      why: "เกิน 31 วันข้างหน้า" },
+    { k: "done", icon: "✓", name: "รายงานแล้ว ข้อมูลอัปเดตเรียบร้อย",
+      why: "งบชุดล่าสุดถูกดึงมาแล้ว ไม่ต้องรออะไร" },
+    { k: "late", icon: "⚠️", name: "เลยวันประกาศแล้ว แต่ข้อมูลยังไม่อัปเดต",
+      why: "บริษัทรายงานงบไปแล้ว แต่ Yahoo ยังไม่ส่งงบชุดใหม่มาให้ " +
+           "ตัวเลขที่แสดงจึงยังเป็นไตรมาสก่อน ควรเช็กที่แหล่งอื่นก่อนใช้" }
+  ];
+
+  function daysUntil(iso) {
+    if (!iso) return null;
+    var t = Date.parse(String(iso).slice(0, 10) + "T00:00:00");
+    if (isNaN(t)) return null;
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.round((t - today.getTime()) / 86400000);
+  }
+
+  function earnBucket(f) {
+    // จัดกลุ่มตามวันที่ประกาศเป็นหลัก
+    // ตัวที่ไตรมาสเก่าแต่ยังไม่ถึงวันประกาศ ยังอยู่กลุ่มตามวันปกติ
+    // แล้วติดป้ายเตือนบนแถวแทน ไม่งั้นจะบังข้อมูลว่ามันกำลังจะประกาศเร็ว ๆ นี้
+    var d = daysUntil(f.ed);
+    if (d === null) return "done";
+    if (d < 0 || f.edold) return "late";   // เลยวันประกาศแล้วแต่ข้อมูลยังเป็นชุดเก่า
+    if (d === 0) return "today";
+    if (d <= 7) return "week";
+    if (d <= 31) return "month";
+    return "later";
+  }
+
   var currentEarn = [];
 
   function renderEarn() {
@@ -1128,6 +1173,11 @@
     var QT = { gd: ["งบดี ราคาลง", "gd"], gu: ["งบดี ราคาขึ้น", "gu"],
                bu: ["งบแย่ ราคาขึ้น", "bu"], bd: ["งบแย่ ราคาลง", "bd"] };
 
+    var isCal = st.eView === "cal";
+    $("eQuadLine").hidden = isCal;
+    $("earnlist").className = isCal ? "ecallist" : "egrid2";
+    if (isCal) { renderEarnCalendar(out, QT); return; }
+
     $("earnlist").innerHTML = out.map(function (o) {
       var r = o.r, e = o.e, f = r.f || {};
       var chg = r.r[di] || 0;
@@ -1161,6 +1211,109 @@
           (f.ed ? " · ประกาศงบครั้งหน้า " + thDate(f.ed) : "") +
         "</div></div>";
     }).join("");
+  }
+
+  /* แถวย่อในมุมมองปฏิทิน — สั้น 2 บรรทัด กดเพื่อกางดูรายละเอียด */
+  function earnRow(o, QT) {
+    var r = o.r, e = o.e, f = r.f || {};
+    var di = PERIODS.indexOf("1d");
+    var chg = r.r[di] || 0;
+    var qd = o.quad ? QT[o.quad] : null;
+    var d = daysUntil(f.ed);
+    var when = f.ed
+      ? (d === 0 ? "วันนี้" : d > 0 ? "อีก " + d + " วัน" : "เลยมา " + (-d) + " วัน")
+      : "ไม่ทราบวัน";
+    var open = !!st.eOpen[r.s];
+
+    var detail = "";
+    if (open) {
+      detail = '<div class="erdetail">' +
+        '<div class="ebars">' + e.parts.map(function (pp) {
+          return '<div class="ebar p' + pp.p + '"><span class="ek">' + pp.label +
+                 '</span><span class="ev">' + pp.val + "</span></div>";
+        }).join("") + "</div>" +
+        (f.edold || f.qold
+          ? '<div class="staleq">' +
+            (f.edold
+              ? "เลยวันประกาศงบมา " + f.edold + " วันแล้ว — ตัวเลขด้านบนยังเป็นงบไตรมาสก่อน"
+              : "ไตรมาสล่าสุดเก่ากว่า " + f.qold + " วัน อาจมีงบใหม่ที่ยังไม่ได้ดึง") +
+            "</div>"
+          : "") +
+        '<div class="efoot2">' +
+          (f.mrq ? "งบไตรมาสถึง " + thDate(f.mrq) +
+                   (o.age !== null ? " (" + o.age + " วันก่อน)" : "") : "ไม่ทราบไตรมาส") +
+          (f.ed ? " · ประกาศงบครั้งหน้า " + thDate(f.ed) : "") +
+          " · คลิกชื่อหุ้นเพื่อดูรายละเอียดเต็ม" +
+        "</div></div>";
+    }
+
+    return '<div class="erow' + (open ? " open" : "") + '">' +
+      '<div class="erhead" data-eopen="' + esc(r.s) + '" role="button" tabindex="0">' +
+        starIcon(r.s) +
+        '<span class="erwhen' + (d === 0 ? " now" : d < 0 ? " late" : "") + '">' +
+          when + "</span>" +
+        '<span class="tk" data-tk="' + esc(r.s) + '" role="button" tabindex="0">' +
+          esc(r.s) + "</span>" +
+        '<span class="ernm">' + esc(r.n) + "</span>" +
+        '<span class="chg ' + (chg >= 0 ? "p" : "n") + '">' + sign(chg) + "%</span>" +
+        '<span class="px">$' + r.p + "</span>" +
+        '<span class="gbadge g' + e.grade + '">' + e.gradeTh + " " + e.score.toFixed(1) +
+          "</span>" +
+        (qd ? '<span class="qbadge ' + qd[1] + '">' + qd[0] + "</span>" : "") +
+        (f.qold && !f.edold
+          ? '<span class="qwarn" title="ไตรมาสล่าสุดเก่ากว่า ' + f.qold +
+            ' วัน อาจมีงบใหม่ที่ยังไม่ได้ดึง">งบเก่า</span>' : "") +
+        '<span class="er3">3 เดือน ' +
+          (o.p3 === null || o.p3 === undefined ? "—" : sign(o.p3) + "%") + "</span>" +
+        '<span class="ercar">' + (open ? "▲" : "▼") + "</span>" +
+      "</div>" + detail + "</div>";
+  }
+
+  function renderEarnCalendar(out, QT) {
+    var groups = {};
+    out.forEach(function (o) {
+      var k = earnBucket(o.r.f || {});
+      (groups[k] = groups[k] || []).push(o);
+    });
+
+    var html = EARN_BUCKETS.map(function (B) {
+      var list = groups[B.k] || [];
+      if (!list.length) return "";
+      // เรียงตามวันที่ประกาศ ใกล้สุดขึ้นก่อน · กลุ่มเลยกำหนดเรียงจากเลยมานานสุด
+      list.sort(function (a, b) {
+        var da = daysUntil((a.r.f || {}).ed), db = daysUntil((b.r.f || {}).ed);
+        if (da === null && db === null) return b.e.score - a.e.score;
+        if (da === null) return 1;
+        if (db === null) return -1;
+        return B.k === "late" ? da - db : da - db;
+      });
+      // กลุ่มที่ใกล้จะประกาศกางไว้เลย ส่วนกลุ่มใหญ่ที่ยังอีกนานย่อไว้ก่อน
+      // ไม่งั้นหน้าจะยาวเป็นหมื่นพิกเซลจนหาอะไรไม่เจอ
+      var alwaysOpen = (B.k === "today" || B.k === "week");
+      var opened = alwaysOpen || st.eSecOpen[B.k];
+      var LIMIT = 10;
+      var show = opened ? list : list.slice(0, LIMIT);
+      var hidden = list.length - show.length;
+
+      return '<section class="ecal"><div class="ecalhead">' +
+        '<h2><span class="ecicon">' + B.icon + "</span>" + B.name +
+        ' <span class="tdn">' + list.length + "</span></h2>" +
+        '<span class="tdwhy">' + B.why + "</span></div>" +
+        '<div class="erows">' +
+        show.map(function (o) { return earnRow(o, QT); }).join("") +
+        "</div>" +
+        (hidden > 0
+          ? '<button class="more" data-esec="' + B.k + '">ดูอีก ' + hidden +
+            " ตัวในกลุ่มนี้</button>"
+          : (opened && !alwaysOpen && list.length > LIMIT
+              ? '<button class="more" data-esec="' + B.k + '">ย่อกลับเหลือ ' +
+                LIMIT + " ตัว</button>"
+              : "")) +
+        "</section>";
+    }).join("");
+
+    $("earnlist").innerHTML = html ||
+      '<p class="empty">ไม่มีหุ้นตรงเงื่อนไข</p>';
   }
 
   /* ───────────────── หน้าที่ 6: เทียบในหมวด ─────────────────
@@ -1851,6 +2004,7 @@
     $("wTheme").addEventListener("change", function (e) {
       st.wTheme = e.target.value; renderWatch();
     });
+    seg("eView", "eView", null, function () { st.eOpen = {}; renderEarn(); });
     seg("eQuad", "eQuad", null, renderEarn);
     seg("eGrade", "eGrade", null, renderEarn);
     seg("eRecent", "eRecent", null, renderEarn);
@@ -1914,6 +2068,20 @@
       if (sBtn) {
         e.stopPropagation();
         toggleStar(sBtn.dataset.star);
+        return;
+      }
+      var es = e.target.closest("[data-esec]");
+      if (es) {
+        var sk = es.dataset.esec;
+        st.eSecOpen[sk] = !st.eSecOpen[sk];
+        renderEarn();
+        return;
+      }
+      var eo = e.target.closest("[data-eopen]");
+      if (eo && !e.target.closest("[data-tk]")) {
+        var key = eo.dataset.eopen;
+        st.eOpen[key] = !st.eOpen[key];
+        renderEarn();
         return;
       }
       var m = e.target.closest("[data-more]");
