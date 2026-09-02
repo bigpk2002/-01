@@ -623,3 +623,35 @@ button.card.down{border-left-color:var(--down)}
 /* ป้ายเตือนงบเก่าบนแถวปฏิทิน */
 .qwarn{font-size:10.5px;padding:1px 7px;border-radius:5px;white-space:nowrap;
   background:rgba(251,191,36,.16);color:#fbbf24;border:1px solid rgba(251,191,36,.45)}
+
+/* ── หน้าแตะเส้น × มูลค่าบริษัท ── */
+.capsec{margin-bottom:22px}
+.capgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:10px}
+.capcard{background:var(--card);border:1px solid var(--line);
+  border-left:3px solid var(--faint);border-radius:12px;padding:11px 13px;
+  cursor:pointer;min-width:0}
+.capcard:hover{background:#26344a}
+.capcard:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.capcard.up{border-left-color:var(--up)}
+.capcard.down{border-left-color:var(--down)}
+.capmc{margin-left:auto;font-size:12.5px;color:var(--accent);font-weight:600;
+  font-family:ui-monospace,Consolas,monospace;white-space:nowrap}
+.capcard .emas{margin-top:7px}
+.capcard .efoot{margin-top:8px}
+
+/* แถบเลื่อนบนจอแคบมาก (360px) ต้องไม่ดันจนล้น
+   min-width:0 จำเป็นเพราะ flex item ไม่ยอมหดต่ำกว่าเนื้อหาโดยปริยาย */
+.slider{min-width:0;max-width:100%;flex-wrap:wrap}
+.slider input[type=range]{min-width:0;flex:1 1 120px}
+.slider output{flex:0 0 auto}
+@media(max-width:420px){
+  .slider .lab{flex:1 1 100%}
+}
+
+/* แท็บย่อยในหน้าหาเส้น EMA */
+.subtabs{display:flex;gap:6px;margin-bottom:13px;flex-wrap:wrap}
+.subtab{background:var(--panel);border:1px solid var(--line);color:var(--dim);
+  border-radius:20px;padding:7px 16px;font-size:13.5px;font-family:inherit;
+  cursor:pointer;white-space:nowrap}
+.subtab:hover{color:var(--ink);border-color:var(--faint)}
+.subtab.on{background:#2a4370;border-color:#3b5a94;color:#fff;font-weight:600}
