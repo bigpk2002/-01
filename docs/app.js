@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "15";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "17";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PAGE_TITLE = {
@@ -32,7 +32,8 @@
     eQuad: "all", eGrade: "all", eRecent: "all",
     eQ: "", eSector: "", eTheme: "", eSort: "score",
     cMode: "theme", cGroup: "", cView: "table", cSort: "score",
-    sSort: "added", onlyStar: false
+    sSort: "added", onlyStar: false,
+    capTol: 1.5, capN: 20, emaSub: "find"
   };
 
   var byTicker = {};
@@ -259,6 +260,7 @@
     renderCmp();
     renderStar();
     renderToday();
+    renderCap();
   }
 
   /* ───────────────── หน้าที่ 0: เช้านี้ ─────────────────
@@ -1560,6 +1562,125 @@
     }).join("");
   }
 
+  /* ───────────────── หน้าที่ 8: แตะเส้น × มูลค่าบริษัท ─────────────────
+
+     คัดหุ้นที่ราคาอยู่ในระยะที่ตั้งไว้จากเส้น EMA เส้นใดก็ได้
+     จากทั้ง 561 ตัว ไม่กรองหมวดหรือธีม แล้วเรียงตามมูลค่าบริษัทจากใหญ่ลงมา
+
+     แยกรายวันกับรายสัปดาห์เป็นสองแถบ เพราะเป็นคนละชุดข้อมูลกัน
+     หุ้นตัวเดียวอาจเข้าเงื่อนไขแค่ไทม์เฟรมเดียว                            */
+
+  function capTouch(r, tf, tol) {
+    // คืนรายชื่อเส้นที่ราคาอยู่ในระยะ พร้อมระยะที่ใกล้ที่สุด
+    var d = (tf === "w") ? ((r.w || {}).d || null) : (r.d || null);
+    if (!d) return null;
+    var hit = [], best = 999;
+    for (var i = 0; i < EMAS.length; i++) {
+      var v = d[i];
+      if (v === null || v === undefined) continue;   // เส้นนี้ข้อมูลไม่พอ
+      if (Math.abs(v) <= tol) {
+        hit.push(EMAS[i]);
+        if (Math.abs(v) < best) best = Math.abs(v);
+      }
+    }
+    return hit.length ? { lines: hit, near: best, d: d } : null;
+  }
+
+  function capList(tf) {
+    var out = [];
+    D.rows.forEach(function (r) {
+      var t = capTouch(r, tf, st.capTol);
+      if (!t) return;
+      var mc = (r.f || {}).mc;
+      out.push({ r: r, t: t, mc: (mc === undefined ? null : mc) });
+    });
+    // ใหญ่สุดขึ้นก่อน · ตัวที่ไม่รู้มูลค่าไปท้ายสุด
+    out.sort(function (a, b) {
+      if (a.mc === null && b.mc === null) return a.r.s.localeCompare(b.r.s);
+      if (a.mc === null) return 1;
+      if (b.mc === null) return -1;
+      return b.mc - a.mc;
+    });
+    return out;
+  }
+
+  function capCard(o, tf) {
+    var r = o.r, t = o.t;
+    var di = PERIODS.indexOf("1d"), mi = PERIODS.indexOf("1m");
+    var chg = r.r[di], m1 = r.r[mi];
+    var f = r.f || {};
+    var trend = (tf === "w") ? ((r.w || {}).t) : r.t;
+    var cls = trend === "up" ? "up" : trend === "down" ? "down" : "";
+
+    var chips = EMAS.map(function (p, i) {
+      var v = t.d[i];
+      if (v === null || v === undefined) {
+        return '<div class="e off"><div class="lb">' + p + '</div><div class="dv">—</div></div>';
+      }
+      var on = t.lines.indexOf(p) >= 0;
+      return '<div class="e ' + (on ? "hit" : "") + '"><div class="lb">' + p + "</div>" +
+             '<div class="dv">' + sign(v) + "</div></div>";
+    }).join("");
+
+    return '<div class="capcard ' + cls + '" data-tk="' + esc(r.s) +
+      '" role="button" tabindex="0">' +
+      '<div class="row1">' + starIcon(r.s) +
+        '<span class="tk">' + esc(r.s) + "</span>" +
+        '<span class="chg ' + ((chg || 0) >= 0 ? "p" : "n") + '">' +
+          (chg === null || chg === undefined ? "—" : sign(chg) + "%") + "</span>" +
+        '<span class="capmc">' + (o.mc === null ? "ไม่ทราบมูลค่า" : money(o.mc)) + "</span>" +
+      "</div>" +
+      '<div class="nm">' + esc(r.n) + (r.g ? " · " + esc(r.g) : "") + "</div>" +
+      '<div class="badges"><span class="b ' + cls + '">' + (TREND_TH[trend] || "-") + "</span>" +
+        '<span class="b">แตะ ' + t.lines.join(" · ") + "</span>" +
+        '<span class="b">ใกล้สุด ' + num(t.near, 2) + "%</span></div>" +
+      '<div class="emas">' + chips + "</div>" +
+      '<div class="efoot"><span>ราคา $' + r.p + "</span>" +
+        "<span>1 เดือน " + (m1 === null || m1 === undefined ? "—" : sign(m1) + "%") + "</span>" +
+        (f.pe ? "<span>P/E " + num(f.pe, 1) + "</span>" : "") + "</div></div>";
+  }
+
+  function renderCap() {
+    if (!D) return;
+    var tol = st.capTol, n = st.capN;
+
+    var secs = [
+      { tf: "d", name: "รายวัน", why: "หนึ่งแท่ง = หนึ่งวัน · อัปเดตทุกวันหลังตลาดปิด" },
+      { tf: "w", name: "รายสัปดาห์",
+        why: "หนึ่งแท่ง = หนึ่งสัปดาห์ · ข้อมูลถึงสัปดาห์ของวันที่ " +
+             thDate(D.meta.weekly_date) }
+    ];
+
+    var totals = {};
+    var html = secs.map(function (S) {
+      var list = capList(S.tf);
+      totals[S.tf] = list.length;
+      var show = list.slice(0, n);
+      if (!show.length) {
+        return '<section class="capsec"><div class="tdhead"><h2>' + S.name + "</h2>" +
+          '<span class="tdwhy">' + S.why + "</span></div>" +
+          '<p class="none">ไม่มีหุ้นที่แตะเส้นในระยะ ' + num(tol, 1) + "%</p></section>";
+      }
+      var noMc = list.filter(function (x) { return x.mc === null; }).length;
+      return '<section class="capsec"><div class="tdhead">' +
+        "<h2>" + S.name + ' <span class="tdn">' + list.length + "</span></h2>" +
+        '<span class="tdwhy">' + S.why + " · แสดง " + show.length + " ตัวที่ใหญ่สุด" +
+        (noMc ? " · ไม่ทราบมูลค่า " + noMc + " ตัว (อยู่ท้ายรายการ)" : "") +
+        "</span></div>" +
+        '<div class="capgrid">' +
+        show.map(function (o) { return capCard(o, S.tf); }).join("") +
+        "</div></section>";
+    }).join("");
+
+    $("capSections").innerHTML = html;
+    $("capNote").innerHTML =
+      "คัดจากหุ้นทั้งหมด <b>" + D.meta.count + "</b> ตัว ทุกหมวดทุกธีม · " +
+      "ราคาอยู่ในระยะ <b>" + num(tol, 1) + "%</b> จากเส้น EMA เส้นใดก็ได้ · " +
+      "เรียงตามมูลค่าบริษัทจากใหญ่สุดลงมา<br>" +
+      "เข้าเงื่อนไข: รายวัน <b>" + (totals.d || 0) + "</b> ตัว · " +
+      "รายสัปดาห์ <b>" + (totals.w || 0) + "</b> ตัว";
+  }
+
   /* ───────────────── หน้าที่ 7: ที่ติดดาว ───────────────── */
 
   function renderStar() {
@@ -1678,6 +1799,7 @@
   function refreshAll() {
     syncStarFilterButtons();
     renderToday();
+    renderCap();
     renderMap();
     renderEma();
     renderTop();
@@ -1965,7 +2087,10 @@
           if (pg) pg.hidden = (k !== st.page);
           if (ft) ft.hidden = (k !== st.page);
         });
-        $("pageTitle").textContent = TITLE[st.page] || "AI Map";
+        $("pageTitle").textContent =
+          (st.page === "ema" && st.emaSub === "cap")
+            ? "หุ้นที่แตะเส้น EMA เรียงตามมูลค่าบริษัท"
+            : (TITLE[st.page] || "เช้านี้");
         window.scrollTo(0, 0);
       });
     });
@@ -2023,6 +2148,30 @@
     });
     $("cSort").addEventListener("change", function (e) {
       st.cSort = e.target.value; renderCmp();
+    });
+    // แท็บย่อยในหน้าหาเส้น EMA
+    $("emaSub").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-sub]");
+      if (!b) return;
+      st.emaSub = b.dataset.sub;
+      $("emaSub").querySelectorAll("[data-sub]").forEach(function (x) {
+        x.classList.toggle("on", x.dataset.sub === st.emaSub);
+      });
+      var isCap = st.emaSub === "cap";
+      $("emaFind").hidden = isCap;
+      $("emaCap").hidden = !isCap;
+      $("pageTitle").textContent = isCap
+        ? "หุ้นที่แตะเส้น EMA เรียงตามมูลค่าบริษัท"
+        : "หุ้นที่ราคาใกล้เส้น EMA";
+      if (isCap) renderCap();
+      window.scrollTo(0, 0);
+    });
+
+    seg("capN", "capN", Number, renderCap);
+    $("capTol").addEventListener("input", function (e) {
+      st.capTol = Number(e.target.value);
+      $("capTolOut").textContent = st.capTol.toFixed(1) + "%";
+      later(renderCap);
     });
     seg("sSort", "sSort", null, renderStar);
     document.addEventListener("click", function (e) {
