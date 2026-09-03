@@ -5,12 +5,12 @@
 (function () {
   "use strict";
 
-  var VERSION = "17";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "18";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PAGE_TITLE = {
     today: "เช้านี้", map: "AI Map", ema: "หุ้นที่ราคาใกล้เส้น EMA",
-    top: "หุ้นโตแรง", watch: "หุ้นที่น่าจับตามอง",
+    top: "หุ้นโตแรง",
     earn: "ผลประกอบการไตรมาส", cmp: "เทียบหุ้นในหมวดเดียวกัน",
     star: "หุ้นที่ติดดาวไว้"
   };
@@ -24,10 +24,9 @@
     tdScope: "all", tdCount: 10,
     period: "1m", mapShow: "all", topN: 10, expanded: {},
     q: "", sector: "", theme: "", sort: "score",
-    tf: "d", tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: [],
+    idx: "all", tf: "d", tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: [],
     topPeriod: "1m", topDir: "up", topSector: "", topTheme: "",
     topCount: 10, topCap: "all",
-    wSide: "all", wSector: "", wTheme: "", wSignal: "",
     eView: "cal", eOpen: {}, eSecOpen: {},
     eQuad: "all", eGrade: "all", eRecent: "all",
     eQ: "", eSector: "", eTheme: "", eSort: "score",
@@ -178,7 +177,7 @@
     })
     .then(function (d) {
       BT = d;
-      if (BT && D) renderWatch();          // ถ้าข้อมูลหลักมาก่อน ให้วาดใหม่
+      if (BT && D) renderCap();            // ถ้าข้อมูลหลักมาก่อน ให้วาดใหม่
     })
     .catch(function () { BT = null; });
 
@@ -219,7 +218,7 @@
         '<option value="' + esc(t.key) + '">' + esc(t.name) + "</option>");
     });
 
-    ["topSector", "topTheme", "wSector", "wTheme",
+    ["topSector", "topTheme",
      "eSector", "eTheme"].forEach(function (id) {
       var el = $(id);
       var isSec = id.indexOf("Sector") >= 0;
@@ -255,7 +254,6 @@
     renderMap();
     renderEma();
     renderTop();
-    renderWatch();
     renderEarn();
     renderCmp();
     renderStar();
@@ -615,6 +613,21 @@
     "70-100": [70, 100], "o100": [100, Infinity]
   };
 
+  /* ดัชนีที่หุ้นตัวนี้สังกัด — เก็บเป็นเลขเดียวเพื่อลดขนาดไฟล์
+     1 = S&P 500 · 2 = Nasdaq 100 · 3 = ทั้งสองดัชนี · 0 = เพิ่มเองใน themes.yml */
+  var IX_TH = { 1: "S&P 500", 2: "Nasdaq 100", 3: "S&P 500 + Nasdaq 100",
+                0: "เพิ่มเอง" };
+
+  function passIdx(r) {
+    if (st.idx === "all") return true;
+    var v = r.ix || 0;
+    if (st.idx === "sp") return (v & 1) === 1;        // อยู่ใน S&P 500 (จะอยู่ NDX ด้วยก็ได้)
+    if (st.idx === "ndx") return (v & 2) === 2;       // อยู่ใน Nasdaq 100
+    if (st.idx === "both") return v === 3;
+    if (st.idx === "extra") return v === 0;
+    return true;
+  }
+
   function passPE(r) {
     if (st.pe === "all") return true;
     var v = (r.f || {}).pe;
@@ -653,6 +666,7 @@
       var X = tfData(r);
       if (!X) return;
       if (!passStar(r.s)) return;
+      if (!passIdx(r)) return;
       if (st.sector && r.g !== st.sector) return;
       if (themeSet && themeSet.indexOf(r.s) < 0) return;
       if (st.trend !== "all" && X.t !== st.trend) return;
@@ -791,220 +805,6 @@
         '<span class="tcell tpe">P/E ' + (f.pe == null ? "—" : num(f.pe, 1)) + "</span>" +
         '<span class="tcell tmc">' + (f.mc ? money(f.mc) : "—") + "</span>" +
         '<span class="tpct">' + sign(o.pct) + "%</span></div>";
-    }).join("");
-  }
-
-  /* ───────────────── หน้าที่ 4: น่าจับตามอง ─────────────────
-
-     ทุกสัญญาณคำนวณจากข้อมูลที่มีอยู่แล้ว ไม่ได้ดึงอะไรเพิ่ม
-     แต่ละอันมีเงื่อนไขชัดเจนตรวจสอบย้อนได้ ไม่ใช่คะแนนลึกลับ
-     จุดประสงค์คือชี้ว่า "ควรไปเปิดกราฟตัวไหนดู" ไม่ใช่บอกให้ซื้อหรือขาย  */
-
-  var SIGNALS = [
-    { k: "sup200", side: "up", name: "ทดสอบแนวรับ EMA200",
-      why: "แนวรับใหญ่ที่คนมองกันมากที่สุด ราคามักเด้งหรือหลุดที่จุดนี้" },
-    { k: "pullback", side: "up", name: "ย่อในขาขึ้นแข็งแรง",
-      why: "เส้นเรียงสวยทุกเส้นแต่ราคาย่อมาแตะเส้นสั้น" },
-    { k: "nearHi", side: "up", name: "ใกล้จุดสูงสุด 52 สัปดาห์",
-      why: "ราคาใกล้ทำจุดสูงสุดใหม่ในรอบปี" },
-    { k: "strong", side: "up", name: "แรงกว่าหมวดมาก",
-      why: "ผลตอบแทน 1 เดือน สูงกว่าค่ากลางของหมวดเกิน 15 จุด" },
-    { k: "bothTf", side: "up", name: "รายวันและรายสัปดาห์ตรงกัน",
-      why: "ขาขึ้นทั้งสองไทม์เฟรม และชนเส้นทั้งคู่" },
-
-    { k: "brk200", side: "down", name: "หลุดเส้น EMA200",
-      why: "ราคาหลุดใต้แนวรับใหญ่ แต่โครงสร้างเส้นยังไม่พังทั้งหมด" },
-    { k: "nearLo", side: "down", name: "ใกล้จุดต่ำสุด 52 สัปดาห์",
-      why: "ราคาใกล้จุดต่ำสุดในรอบปี" },
-    { k: "weak", side: "down", name: "อ่อนกว่าหมวดมาก",
-      why: "ผลตอบแทน 1 เดือน ต่ำกว่าค่ากลางของหมวดเกิน 15 จุด" },
-    { k: "res200", side: "down", name: "ชนแนวต้าน EMA200",
-      why: "อยู่ในขาลงและราคาเด้งขึ้นมาชนเส้นใหญ่จากด้านล่าง" },
-
-    { k: "squeeze", side: "watch", name: "เส้นบีบตัว",
-      why: "เส้นทุกเส้นเบียดกัน มักตามด้วยการเคลื่อนไหวแรง แต่ยังไม่รู้ทิศ" },
-    { k: "cheapUp", side: "watch", name: "P/E ต่ำกว่าหมวดแต่ยังขาขึ้น",
-      why: "ราคาถูกกว่าเพื่อนในหมวดเกิน 30% ขณะที่แนวโน้มยังเป็นขาขึ้น" }
-  ];
-  var SIGMAP = {};
-  SIGNALS.forEach(function (x) { SIGMAP[x.k] = x; });
-
-  /* ป้ายบอกผลทดสอบย้อนหลังของสัญญาณนั้น
-
-     ตัวเลขคือ "ส่วนต่างจากค่าเฉลี่ยหุ้นทั้งหมดในวันเดียวกัน"
-     ถือต่ออีก 60 วันทำการ ไม่ใช่ผลตอบแทนดิบ
-     +2% แปลว่าเคยทำได้ดีกว่าหุ้นทั่วไป 2 จุดโดยเฉลี่ย                */
-  function btBadge(key) {
-    if (!BT || !BT.signals || !BT.signals[key]) return "";
-    var st2 = BT.signals[key]["h" + (BT.horizons ? BT.horizons[BT.horizons.length - 1] : 60)];
-    if (!st2) return "";
-    var cls = st2.n < (BT.min_samples || 100) ? "bt-none"
-            : Math.abs(st2.tstat) < 2 ? "bt-none"
-            : st2.excess_mean > 0 ? "bt-good" : "bt-bad";
-    var txt = st2.n < (BT.min_samples || 100) ? "ตัวอย่างน้อย"
-            : Math.abs(st2.tstat) < 2 ? "ไม่ต่างจากสุ่ม"
-            : (st2.excess_mean > 0 ? "+" : "") + st2.excess_mean.toFixed(1) + "%";
-    return ' <span class="btb ' + cls + '" title="ทดสอบย้อนหลัง ' +
-      (BT.years || 3) + " ปี · พบ " + st2.n + " ครั้ง · ถือต่อ 60 วันทำการ · " +
-      "ชนะตลาด " + st2.win_rate + '%">' + txt + "</span>";
-  }
-
-  var sectorRet = null;      // ค่ากลางผลตอบแทน 1 เดือน แยกตามหมวด
-
-  function buildSectorRet() {
-    var mi = PERIODS.indexOf("1m"), bucket = {};
-    D.rows.forEach(function (r) {
-      var v = r.r[mi];
-      if (v === null || v === undefined || !r.g) return;
-      (bucket[r.g] = bucket[r.g] || []).push(v);
-    });
-    sectorRet = {};
-    Object.keys(bucket).forEach(function (g) {
-      if (bucket[g].length >= 4) sectorRet[g] = median(bucket[g]);
-    });
-  }
-
-  function watchSignals(r) {
-    var out = [], d = r.d, w = r.w, f = r.f || {};
-    var mi = PERIODS.indexOf("1m");
-    var m1 = r.r[mi];
-    var med = (D.meta.sector_med || {})[r.g] || {};
-    var sret = sectorRet ? sectorRet[r.g] : undefined;
-
-    function add(k, detail) { out.push({ k: k, detail: detail }); }
-
-    if (d) {
-      // ── ฝั่งบวก ──
-      if (r.t === "up" && d[5] >= 0 && d[5] <= 2)
-        add("sup200", "อยู่เหนือเส้น 200 เพียง " + num(d[5], 2) + "%");
-
-      if (r.a && d.some(function (x, i) { return i <= 3 && Math.abs(x) <= 2; }))
-        add("pullback", "เส้นเรียงสวยครบ และแตะเส้นสั้นในระยะ 2%");
-
-      if (r.t === "down" && d[5] <= 0 && d[5] >= -2)
-        add("res200", "อยู่ใต้เส้น 200 เพียง " + num(Math.abs(d[5]), 2) + "%");
-
-      // หลุดเส้น 200 แต่ EMA50 ยังอยู่เหนือ EMA200 (โครงสร้างยังไม่พังหมด)
-      if (d[5] < 0 && d[5] >= -4 && d[3] < d[5])
-        add("brk200", "หลุดใต้เส้น 200 มา " + num(Math.abs(d[5]), 2) +
-                      "% แต่เส้น 50 ยังอยู่เหนือเส้น 200");
-
-      if (r.rb !== null && r.rb !== undefined && r.rb <= 3)
-        add("squeeze", "กลุ่มเส้นกว้างแค่ " + num(r.rb, 2) + "% ของราคา");
-    }
-
-    if (f.hi && r.p >= f.hi * 0.97 && r.p <= f.hi * 1.02)
-      add("nearHi", "ห่างจากจุดสูงสุด " + num((1 - r.p / f.hi) * 100, 1) + "%");
-    if (f.lo && r.p <= f.lo * 1.03)
-      add("nearLo", "ห่างจากจุดต่ำสุด " + num((r.p / f.lo - 1) * 100, 1) + "%");
-
-    if (m1 !== null && m1 !== undefined && sret !== undefined) {
-      if (m1 - sret >= 15)
-        add("strong", "1 เดือน " + sign(m1) + "% · ค่ากลางหมวด " + sign(sret) + "%");
-      if (sret - m1 >= 15)
-        add("weak", "1 เดือน " + sign(m1) + "% · ค่ากลางหมวด " + sign(sret) + "%");
-    }
-
-    if (d && w && r.t === "up" && w.t === "up") {
-      var nd = d.some(function (x) { return Math.abs(x) <= 2; });
-      var nw = w.d.some(function (x) { return x !== null && Math.abs(x) <= 2; });
-      if (nd && nw) add("bothTf", "ขาขึ้นทั้งรายวันและรายสัปดาห์ และชนเส้นทั้งคู่");
-    }
-
-    if (f.pe && med.pe && r.t === "up" && f.pe <= med.pe * 0.7)
-      add("cheapUp", "P/E " + num(f.pe, 1) + " · ค่ากลางหมวด " + num(med.pe, 1));
-
-    return out;
-  }
-
-  var currentWatch = [];
-
-  function renderWatch() {
-    if (!D) return;
-    if (!sectorRet) buildSectorRet();
-
-    var themeSet = null;
-    if (st.wTheme) {
-      var t = (D.themes || []).filter(function (x) { return x.key === st.wTheme; })[0];
-      themeSet = t ? t.tickers : [];
-    }
-
-    var mi = PERIODS.indexOf("1m"), di = PERIODS.indexOf("1d");
-    var out = [], counts = {};
-    D.rows.forEach(function (r) {
-      if (!passStar(r.s)) return;
-      if (st.wSector && r.g !== st.wSector) return;
-      if (themeSet && themeSet.indexOf(r.s) < 0) return;
-      var sig = watchSignals(r);
-      if (!sig.length) return;
-      sig.forEach(function (x) { counts[x.k] = (counts[x.k] || 0) + 1; });
-      if (st.wSignal && !sig.some(function (x) { return x.k === st.wSignal; })) return;
-      if (st.wSide !== "all" &&
-          !sig.some(function (x) { return SIGMAP[x.k].side === st.wSide; })) return;
-      out.push({ r: r, sig: sig });
-    });
-
-    // เรียงจากตัวที่ติดหลายสัญญาณก่อน แล้วค่อยดูขนาดการเคลื่อนไหว
-    out.sort(function (a, b) {
-      return b.sig.length - a.sig.length ||
-             Math.abs(b.r.r[mi] || 0) - Math.abs(a.r.r[mi] || 0);
-    });
-    currentWatch = out;
-
-    // ปุ่มเลือกสัญญาณ สร้างครั้งเดียว
-    var box = $("wSignal");
-    if (box.dataset.built !== "1") {
-      var html = '<button class="on" data-v="">ทั้งหมด</button>';
-      SIGNALS.forEach(function (x) {
-        html += '<button data-v="' + x.k + '" title="' + esc(x.why) + '">' +
-                esc(x.name) + "</button>";
-      });
-      box.insertAdjacentHTML("beforeend", html);
-      box.dataset.built = "1";
-    }
-    box.querySelectorAll("button[data-v]").forEach(function (bt) {
-      var k = bt.dataset.v;
-      if (!k) return;
-      var n = counts[k] || 0;
-      bt.disabled = n === 0;
-      bt.style.opacity = n === 0 ? "0.35" : "";
-      if (bt.dataset.base === undefined) bt.dataset.base = bt.textContent;
-      bt.textContent = bt.dataset.base + " (" + n + ")";
-    });
-
-    $("wNote").innerHTML =
-      "พบ <b>" + out.length + "</b> ตัวที่เข้าเงื่อนไขอย่างน้อยหนึ่งข้อ · " +
-      "คำนวณจากราคาปิดวันที่ <b>" + esc(D.meta.date) + "</b> · " +
-      "คลิกการ์ดเพื่อดูรายละเอียดหุ้น" +
-      (BT ? "<br>ตัวเลขในวงเล็บข้างชื่อสัญญาณ = <b>ผลทดสอบย้อนหลัง " +
-            (BT.years || 3) + " ปี</b> ว่าเคยดีกว่าหรือแย่กว่าค่าเฉลี่ยหุ้นทั้งหมดกี่จุด " +
-            "เมื่อถือต่ออีก 60 วันทำการ (แตะป้ายเพื่อดูจำนวนครั้งที่พบ)"
-          : "");
-
-    $("wEmpty").hidden = out.length > 0;
-    $("wgrid").innerHTML = out.map(function (o) {
-      var r = o.r;
-      var chg = r.r[di] || 0, m1 = r.r[mi];
-      var ups = o.sig.filter(function (x) { return SIGMAP[x.k].side === "up"; }).length;
-      var dns = o.sig.filter(function (x) { return SIGMAP[x.k].side === "down"; }).length;
-      var cls = ups > dns ? "up" : dns > ups ? "down" : "";
-      var tags = o.sig.map(function (x) {
-        var S = SIGMAP[x.k];
-        return '<div class="wsig ' + S.side + '" title="' + esc(S.why) + '">' +
-          '<span class="wname">' + esc(S.name) + btBadge(x.k) + "</span>" +
-          '<span class="wdetail">' + esc(x.detail) + "</span></div>";
-      }).join("");
-      return '<div class="wcard ' + cls + '" data-tk="' + esc(r.s) +
-        '" role="button" tabindex="0">' +
-        '<div class="row1">' + starIcon(r.s) + '<span class="tk">' + esc(r.s) + "</span>" +
-          '<span class="chg ' + (chg >= 0 ? "p" : "n") + '">' + sign(chg) + "%</span>" +
-          '<span class="px">$' + r.p + "</span></div>" +
-        '<div class="nm">' + esc(r.n) + (r.g ? " · " + esc(r.g) : "") + "</div>" +
-        '<div class="wstats">1 เดือน <b class="' +
-          (m1 > 0 ? "up" : m1 < 0 ? "down" : "") + '">' +
-          (m1 === null || m1 === undefined ? "—" : sign(m1) + "%") + "</b>" +
-          (r.f && r.f.pe ? " · P/E " + num(r.f.pe, 1) : "") + "</div>" +
-        '<div class="wsigs">' + tags + "</div></div>";
     }).join("");
   }
 
@@ -1803,7 +1603,6 @@
     renderMap();
     renderEma();
     renderTop();
-    renderWatch();
     renderEarn();
     renderCmp();
     renderStar();
@@ -2046,6 +1845,9 @@
       '<p class="mnote">ราคา 60 วันทำการล่าสุด</p>' +
       "<h3>ผลตอบแทนแต่ละช่วง</h3><div class='pgrid'>" + perf + "</div>" +
       emaBlock + fundBlock +
+      "<h3>ที่มาของหุ้น</h3><div class='badges'><span class='b'>" +
+        (IX_TH[r.ix || 0] || "-") + "</span>" +
+        (r.g ? "<span class='b'>" + esc(r.g) + "</span>" : "") + "</div>" +
       (themes ? "<h3>ธีมที่สังกัด</h3><div class='badges'>" + themes + "</div>" : "") +
       (r.v ? '<p class="mnote">มูลค่าซื้อขายเฉลี่ย 20 วัน ' + fmtM(r.v) + " ดอลลาร์</p>" : "");
 
@@ -2080,7 +1882,7 @@
         t.classList.add("on");
         st.page = t.dataset.page;
         var TITLE = PAGE_TITLE;
-        ["today", "map", "ema", "top", "watch", "earn", "cmp", "star"]
+        ["today", "map", "ema", "top", "earn", "cmp", "star"]
           .forEach(function (k) {
           var pg = $("page" + k.charAt(0).toUpperCase() + k.slice(1));
           var ft = $("foot" + k.charAt(0).toUpperCase() + k.slice(1));
@@ -2106,6 +1908,7 @@
     seg("minNear", "minNear", Number, renderEma);
     seg("trend", "trend", null, renderEma);
     seg("side", "side", null, renderEma);
+    seg("idx", "idx", null, renderEma);
     seg("tf", "tf", null, function () {
       updateTfNote();
       renderEma();
@@ -2120,14 +1923,6 @@
     });
     $("topTheme").addEventListener("change", function (e) {
       st.topTheme = e.target.value; renderTop();
-    });
-    seg("wSide", "wSide", null, renderWatch);
-    seg("wSignal", "wSignal", null, renderWatch);
-    $("wSector").addEventListener("change", function (e) {
-      st.wSector = e.target.value; renderWatch();
-    });
-    $("wTheme").addEventListener("change", function (e) {
-      st.wTheme = e.target.value; renderWatch();
     });
     seg("eView", "eView", null, function () { st.eOpen = {}; renderEarn(); });
     seg("eQuad", "eQuad", null, renderEarn);
