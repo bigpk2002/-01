@@ -5,12 +5,12 @@
 (function () {
   "use strict";
 
-  var VERSION = "18";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "19";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PAGE_TITLE = {
     today: "เช้านี้", map: "AI Map", ema: "หุ้นที่ราคาใกล้เส้น EMA",
-    top: "หุ้นโตแรง",
+    top: "หุ้นโตแรง", buzz: "หุ้นที่เพิ่งเข้ากระแส",
     earn: "ผลประกอบการไตรมาส", cmp: "เทียบหุ้นในหมวดเดียวกัน",
     star: "หุ้นที่ติดดาวไว้"
   };
@@ -24,6 +24,7 @@
     tdScope: "all", tdCount: 10,
     period: "1m", mapShow: "all", topN: 10, expanded: {},
     q: "", sector: "", theme: "", sort: "score",
+    bzSig: "all", bzDir: "all", bzVol: 2.0, bzN: 20,
     idx: "all", tf: "d", tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: [],
     topPeriod: "1m", topDir: "up", topSector: "", topTheme: "",
     topCount: 10, topCap: "all",
@@ -254,6 +255,7 @@
     renderMap();
     renderEma();
     renderTop();
+    renderBuzz();
     renderEarn();
     renderCmp();
     renderStar();
@@ -805,6 +807,121 @@
         '<span class="tcell tpe">P/E ' + (f.pe == null ? "—" : num(f.pe, 1)) + "</span>" +
         '<span class="tcell tmc">' + (f.mc ? money(f.mc) : "—") + "</span>" +
         '<span class="tpct">' + sign(o.pct) + "%</span></div>";
+    }).join("");
+  }
+
+  /* ───────────────── หน้าที่ 4: เพิ่งเข้ากระแส ─────────────────
+
+     หาหุ้นที่ "เพิ่งเปลี่ยนสถานะ" ไม่ใช่ตัวที่ดังอยู่แล้ว
+     ทุกสัญญาณคำนวณจากตัวเลขที่มีอยู่ ไม่ต้องพึ่งข่าว
+
+     ข้อจำกัดที่ต้องยอมรับ: เราเห็นหลังตลาดปิด ไม่ได้เห็นก่อนใคร
+     แต่เห็นครบทุกตัวพร้อมกัน ซึ่งการอ่านข่าวทีละข่าวทำไม่ได้        */
+
+  var BZ = {
+    vol:  { name: "วอลุ่มพุ่ง",       icon: "📊" },
+    bo:   { name: "หลุดกรอบราคา",     icon: "🚀" },
+    tc:   { name: "เทรนด์เปลี่ยน",    icon: "🔄" },
+    nw:   { name: "เพิ่งมาถึงเส้น",   icon: "🎯" }
+  };
+
+  function buzzOf(r) {
+    var out = [], di = PERIODS.indexOf("1d");
+    var chg = r.r[di];
+
+    if (r.vr !== undefined && r.vr >= st.bzVol) {
+      out.push({ k: "vol", detail: "วอลุ่ม " + num(r.vr, 2) + " เท่าของค่าเฉลี่ย 20 วัน",
+                 // วอลุ่มไม่บอกทิศทางเอง ใช้ราคาวันนี้เป็นตัวชี้
+                 side: (chg || 0) >= 0 ? "up" : "down" });
+    }
+    if (r.bo === 1) {
+      out.push({ k: "bo", detail: "ทำจุดสูงสุดใหม่ในรอบ 3 เดือน", side: "up" });
+    } else if (r.bo === -1) {
+      out.push({ k: "bo", detail: "ทำจุดต่ำสุดใหม่ในรอบ 3 เดือน", side: "down" });
+    }
+    if (r.tc) {
+      out.push({ k: "tc",
+                 detail: "จาก " + (TREND_TH[r.tc] || r.tc) + " เป็น " + (TREND_TH[r.t] || r.t),
+                 side: r.t === "up" ? "up" : r.t === "down" ? "down" : "flat" });
+    }
+    if ((r.nw || []).length) {
+      out.push({ k: "nw", detail: "เพิ่งเข้าระยะเส้น " + r.nw.join(" · "),
+                 side: (chg || 0) >= 0 ? "up" : "down" });
+    }
+    return out;
+  }
+
+  function renderBuzz() {
+    if (!D) return;
+    var di = PERIODS.indexOf("1d"), mi = PERIODS.indexOf("1m");
+
+    var all = [], out = [];
+    D.rows.forEach(function (r) {
+      var sig = buzzOf(r);
+      if (!sig.length) return;
+      all.push({ r: r, sig: sig });
+
+      if (!passStar(r.s)) return;
+      if (st.bzSig !== "all" && !sig.some(function (x) { return x.k === st.bzSig; })) return;
+      if (st.bzDir !== "all" && !sig.some(function (x) { return x.side === st.bzDir; })) return;
+      out.push({ r: r, sig: sig });
+    });
+
+    // เรียงจากตัวที่ติดหลายสัญญาณก่อน แล้วดูวอลุ่มที่พุ่งแรงกว่า
+    out.sort(function (a, b) {
+      return b.sig.length - a.sig.length ||
+             (b.r.vr || 0) - (a.r.vr || 0) ||
+             Math.abs(b.r.r[di] || 0) - Math.abs(a.r.r[di] || 0);
+    });
+
+    var counts = {};
+    all.forEach(function (o) {
+      o.sig.forEach(function (x) { counts[x.k] = (counts[x.k] || 0) + 1; });
+    });
+    $("bzStats").innerHTML = Object.keys(BZ).map(function (k) {
+      return '<div class="stat"><div class="k">' + BZ[k].icon + " " + BZ[k].name +
+        '</div><div class="v">' + (counts[k] || 0) + "</div></div>";
+    }).join("");
+
+    var shown = out.slice(0, st.bzN);
+    $("bzEmpty").hidden = out.length > 0;
+
+    $("bzNote").innerHTML =
+      "พบ <b>" + all.length + "</b> ตัวที่เพิ่งเปลี่ยนสถานะ · แสดง <b>" + shown.length +
+      "</b> ตัว · คำนวณจากราคาปิดวันที่ <b>" + esc(D.meta.date) + "</b>" +
+      (D.meta.prev_date ? " เทียบกับ " + thDate(D.meta.prev_date) : "") +
+      "<br>เกณฑ์วอลุ่ม <b>" + num(st.bzVol, 1) + " เท่า</b> ของค่าเฉลี่ย 20 วันก่อนหน้า · " +
+      "เห็นหลังตลาดปิด ไม่ได้เห็นก่อนใคร แต่เห็นครบทุกตัวพร้อมกัน";
+
+    $("buzzlist").innerHTML = shown.map(function (o) {
+      var r = o.r, f = r.f || {};
+      var chg = r.r[di], m1 = r.r[mi];
+      var ups = o.sig.filter(function (x) { return x.side === "up"; }).length;
+      var dns = o.sig.filter(function (x) { return x.side === "down"; }).length;
+      var cls = ups > dns ? "up" : dns > ups ? "down" : "";
+
+      var tags = o.sig.map(function (x) {
+        return '<div class="bzsig ' + x.side + '">' +
+          '<span class="bzname">' + BZ[x.k].icon + " " + BZ[x.k].name + "</span>" +
+          '<span class="bzdetail">' + esc(x.detail) + "</span></div>";
+      }).join("");
+
+      return '<div class="bzcard ' + cls + '" data-tk="' + esc(r.s) +
+        '" role="button" tabindex="0">' +
+        '<div class="row1">' + starIcon(r.s) +
+          '<span class="tk">' + esc(r.s) + "</span>" +
+          '<span class="chg ' + ((chg || 0) >= 0 ? "p" : "n") + '">' +
+            (chg === null || chg === undefined ? "—" : sign(chg) + "%") + "</span>" +
+          '<span class="px">$' + r.p + "</span>" +
+          (r.vr !== undefined
+            ? '<span class="bzvr' + (r.vr >= st.bzVol ? " hot" : "") + '">×' +
+              num(r.vr, 1) + "</span>" : "") + "</div>" +
+        '<div class="nm">' + esc(r.n) + (r.g ? " · " + esc(r.g) : "") + "</div>" +
+        '<div class="bzsigs">' + tags + "</div>" +
+        '<div class="efoot"><span>1 เดือน ' +
+          (m1 === null || m1 === undefined ? "—" : sign(m1) + "%") + "</span>" +
+          (f.pe ? "<span>P/E " + num(f.pe, 1) + "</span>" : "") +
+          (f.mc ? "<span>" + money(f.mc) + "</span>" : "") + "</div></div>";
     }).join("");
   }
 
@@ -1599,6 +1716,7 @@
   function refreshAll() {
     syncStarFilterButtons();
     renderToday();
+    renderBuzz();
     renderCap();
     renderMap();
     renderEma();
@@ -1882,7 +2000,7 @@
         t.classList.add("on");
         st.page = t.dataset.page;
         var TITLE = PAGE_TITLE;
-        ["today", "map", "ema", "top", "earn", "cmp", "star"]
+        ["today", "map", "ema", "top", "buzz", "earn", "cmp", "star"]
           .forEach(function (k) {
           var pg = $("page" + k.charAt(0).toUpperCase() + k.slice(1));
           var ft = $("foot" + k.charAt(0).toUpperCase() + k.slice(1));
@@ -1908,6 +2026,14 @@
     seg("minNear", "minNear", Number, renderEma);
     seg("trend", "trend", null, renderEma);
     seg("side", "side", null, renderEma);
+    seg("bzSig", "bzSig", null, renderBuzz);
+    seg("bzDir", "bzDir", null, renderBuzz);
+    seg("bzN", "bzN", Number, renderBuzz);
+    $("bzVol").addEventListener("input", function (e) {
+      st.bzVol = Number(e.target.value);
+      $("bzVolOut").textContent = st.bzVol.toFixed(1) + " เท่า";
+      later(renderBuzz);
+    });
     seg("idx", "idx", null, renderEma);
     seg("tf", "tf", null, function () {
       updateTfNote();
