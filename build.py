@@ -1004,7 +1004,12 @@ def analyse(info: dict, df: pd.DataFrame) -> dict | None:
             continue
         rets[p] = round((price / float(prior.iloc[-1]) - 1) * 100, 2) + 0.0
 
-    row = {**{k: info[k] for k in ("n", "g")},
+    # เก็บว่าหุ้นตัวนี้มาจากดัชนีไหน เพื่อให้หน้าเว็บกรองและแสดงที่มาได้
+    # ix: 1=S&P 500 · 2=Nasdaq 100 · 3=ทั้งสองดัชนี · 0=เพิ่มเองใน themes.yml
+    ix = (1 if info.get("sp") else 0) + (2 if info.get("ndx") else 0)
+
+    row = {"ix": ix,
+           **{k: info[k] for k in ("n", "g")},
            "s": info["t"], "p": round(price, 2),
            **({"x": 1} if info.get("extra") else {}),   # หุ้นนอกดัชนี
            "r": [rets[p] for p in PERIODS],
