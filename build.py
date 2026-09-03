@@ -1008,11 +1008,37 @@ def analyse(info: dict, df: pd.DataFrame) -> dict | None:
     # ix: 1=S&P 500 · 2=Nasdaq 100 · 3=ทั้งสองดัชนี · 0=เพิ่มเองใน themes.yml
     ix = (1 if info.get("sp") else 0) + (2 if info.get("ndx") else 0)
 
+    # ── สัญญาณ "เพิ่งเข้ากระแส" ──
+    # วัดจากตัวเลขที่มีอยู่แล้ว ไม่ต้องพึ่งข่าว
+    vol = df["volume"].fillna(0)
+    extra_sig = {}
+
+    # 1) วอลุ่มพุ่งผิดปกติ = วอลุ่มวันล่าสุดเทียบค่าเฉลี่ย 20 วันก่อนหน้า
+    #    ใช้ 20 วันก่อนหน้า ไม่รวมวันล่าสุด ไม่งั้นวันที่พุ่งจะดันค่าเฉลี่ยขึ้นเอง
+    if len(vol) >= 25:
+        base = float(vol.iloc[-21:-1].mean())
+        last = float(vol.iloc[-1])
+        if base > 0 and last > 0:
+            ratio = last / base
+            if np.isfinite(ratio) and ratio > 0:
+                extra_sig["vr"] = round(ratio, 2)      # กี่เท่าของปกติ
+
+    # 2) หลุดกรอบราคา = ทำจุดสูงสุด/ต่ำสุดใหม่ในรอบ 3 เดือน (63 วันทำการ)
+    #    เทียบกับ 63 วันก่อนหน้า ไม่รวมวันล่าสุด
+    if len(close) >= 70:
+        win = close.iloc[-64:-1]
+        hi63, lo63 = float(win.max()), float(win.min())
+        if hi63 > 0 and price > hi63:
+            extra_sig["bo"] = 1                        # ทะลุขึ้น
+        elif lo63 > 0 and price < lo63:
+            extra_sig["bo"] = -1                       # หลุดลง
+
     row = {"ix": ix,
            **{k: info[k] for k in ("n", "g")},
            "s": info["t"], "p": round(price, 2),
            **({"x": 1} if info.get("extra") else {}),   # หุ้นนอกดัชนี
            "r": [rets[p] for p in PERIODS],
+           **extra_sig,
            "h": spark(close)}
 
     # ── ระยะห่างจากเส้น EMA ──
@@ -1035,6 +1061,7 @@ def analyse(info: dict, df: pd.DataFrame) -> dict | None:
                          if len(s200) > 11 and s200.iloc[-11] else 0.0)
 
     turnover = float((close * df["volume"].fillna(0)).tail(20).mean())
+
     row["v"] = round(turnover / 1e6, 1) if np.isfinite(turnover) else 0.0
     return row
 
