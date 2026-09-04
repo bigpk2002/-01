@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "19";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "21";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PAGE_TITLE = {
@@ -24,7 +24,7 @@
     tdScope: "all", tdCount: 10,
     period: "1m", mapShow: "all", topN: 10, expanded: {},
     q: "", sector: "", theme: "", sort: "score",
-    bzSig: "all", bzDir: "all", bzVol: 2.0, bzN: 20,
+    bzSig: "all", bzDir: "all", bzN: 10,
     idx: "all", tf: "d", tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: [],
     topPeriod: "1m", topDir: "up", topSector: "", topTheme: "",
     topCount: 10, topCap: "all",
@@ -818,6 +818,11 @@
      ข้อจำกัดที่ต้องยอมรับ: เราเห็นหลังตลาดปิด ไม่ได้เห็นก่อนใคร
      แต่เห็นครบทุกตัวพร้อมกัน ซึ่งการอ่านข่าวทีละข่าวทำไม่ได้        */
 
+  // เกณฑ์วอลุ่มพุ่ง — ตั้งตายตัวไว้ที่ 2 เท่า
+  // เดิมให้ผู้ใช้ปรับได้ 1.2–4 เท่า แต่กลายเป็นภาระต้องมานั่งเลือกทุกครั้ง
+  // 2 เท่าเป็นจุดที่คนใช้กันทั่วไปว่า "ผิดปกติ" จึงตั้งไว้เลย
+  var BZ_VOL = 2.0;
+
   var BZ = {
     vol:  { name: "วอลุ่มพุ่ง",       icon: "📊" },
     bo:   { name: "หลุดกรอบราคา",     icon: "🚀" },
@@ -829,7 +834,7 @@
     var out = [], di = PERIODS.indexOf("1d");
     var chg = r.r[di];
 
-    if (r.vr !== undefined && r.vr >= st.bzVol) {
+    if (r.vr !== undefined && r.vr >= BZ_VOL) {
       out.push({ k: "vol", detail: "วอลุ่ม " + num(r.vr, 2) + " เท่าของค่าเฉลี่ย 20 วัน",
                  // วอลุ่มไม่บอกทิศทางเอง ใช้ราคาวันนี้เป็นตัวชี้
                  side: (chg || 0) >= 0 ? "up" : "down" });
@@ -874,24 +879,22 @@
              Math.abs(b.r.r[di] || 0) - Math.abs(a.r.r[di] || 0);
     });
 
-    var counts = {};
-    all.forEach(function (o) {
-      o.sig.forEach(function (x) { counts[x.k] = (counts[x.k] || 0) + 1; });
-    });
-    $("bzStats").innerHTML = Object.keys(BZ).map(function (k) {
-      return '<div class="stat"><div class="k">' + BZ[k].icon + " " + BZ[k].name +
-        '</div><div class="v">' + (counts[k] || 0) + "</div></div>";
-    }).join("");
-
     var shown = out.slice(0, st.bzN);
     $("bzEmpty").hidden = out.length > 0;
 
+    var byKind = {};
+    all.forEach(function (o) {
+      o.sig.forEach(function (x) { byKind[x.k] = (byKind[x.k] || 0) + 1; });
+    });
+    var parts = Object.keys(BZ).filter(function (k) { return byKind[k]; })
+      .map(function (k) { return BZ[k].icon + " " + BZ[k].name + " " + byKind[k]; });
+
     $("bzNote").innerHTML =
-      "พบ <b>" + all.length + "</b> ตัวที่เพิ่งเปลี่ยนสถานะ · แสดง <b>" + shown.length +
-      "</b> ตัว · คำนวณจากราคาปิดวันที่ <b>" + esc(D.meta.date) + "</b>" +
+      "วันนี้มี <b>" + all.length + "</b> ตัวที่เพิ่งเปลี่ยนสถานะ" +
+      (parts.length ? " — " + parts.join(" · ") : "") +
+      "<br>ข้อมูลปิดตลาดวันที่ <b>" + esc(D.meta.date) + "</b>" +
       (D.meta.prev_date ? " เทียบกับ " + thDate(D.meta.prev_date) : "") +
-      "<br>เกณฑ์วอลุ่ม <b>" + num(st.bzVol, 1) + " เท่า</b> ของค่าเฉลี่ย 20 วันก่อนหน้า · " +
-      "เห็นหลังตลาดปิด ไม่ได้เห็นก่อนใคร แต่เห็นครบทุกตัวพร้อมกัน";
+      " · เรียงจากตัวที่ติดหลายสัญญาณก่อน";
 
     $("buzzlist").innerHTML = shown.map(function (o) {
       var r = o.r, f = r.f || {};
@@ -914,7 +917,7 @@
             (chg === null || chg === undefined ? "—" : sign(chg) + "%") + "</span>" +
           '<span class="px">$' + r.p + "</span>" +
           (r.vr !== undefined
-            ? '<span class="bzvr' + (r.vr >= st.bzVol ? " hot" : "") + '">×' +
+            ? '<span class="bzvr' + (r.vr >= BZ_VOL ? " hot" : "") + '">×' +
               num(r.vr, 1) + "</span>" : "") + "</div>" +
         '<div class="nm">' + esc(r.n) + (r.g ? " · " + esc(r.g) : "") + "</div>" +
         '<div class="bzsigs">' + tags + "</div>" +
@@ -1132,6 +1135,174 @@
     }).join("");
   }
 
+  /* ───────── รายละเอียดผลประกอบการ แบบอธิบายเป็นภาษาคน ─────────
+
+     เดิมกางออกมาเห็นแค่ตัวเลข 4 ตัวลอย ๆ ไม่ได้บอกว่ามันแปลว่าอะไร
+     ตอนนี้แบ่งเป็น 4 ส่วน แต่ละตัวเลขมีคำอธิบายว่าหมายความว่าอะไร
+
+     ส่วน "ตลาดคาดหวังอะไร" ใช้ P/E คาดการณ์เทียบ P/E ปัจจุบัน
+     ซึ่งเป็นการอ่านความคาดหวังของตลาดโดยตรง ไม่ใช่การเดา
+     ถ้า P/E คาดการณ์ต่ำกว่าปัจจุบัน แปลว่าตลาดคาดว่ากำไรจะโตขึ้น
+     (เพราะ P/E = ราคา ÷ กำไร ถ้ากำไรโต ตัวหารใหญ่ขึ้น P/E ก็ลด)     */
+
+  var REC_TH = {
+    strongbuy: "แนะนำซื้อมาก", buy: "แนะนำซื้อ", hold: "แนะนำถือ",
+    underperform: "แนะนำลดน้ำหนัก", sell: "แนะนำขาย",
+    strong_buy: "แนะนำซื้อมาก", none: "ไม่มีคำแนะนำ"
+  };
+
+  /* กล่องตัวเลขหนึ่งช่อง พร้อมคำอธิบายว่าหมายความว่าอะไร */
+  function metric(label, value, meaning, tone) {
+    return '<div class="mx' + (tone ? " " + tone : "") + '">' +
+      '<div class="mxl">' + label + "</div>" +
+      '<div class="mxv">' + value + "</div>" +
+      (meaning ? '<div class="mxm">' + meaning + "</div>" : "") + "</div>";
+  }
+
+  function earnDetail(o) {
+    var r = o.r, f = r.f || {}, e = o.e;
+    var med = (D.meta.sector_med || {})[r.g] || {};
+    var pc = function (v) { return (v > 0 ? "+" : "") + (v * 100).toFixed(1) + "%"; };
+    var out = "";
+
+    /* ── 1. งบไตรมาสล่าสุดบอกอะไร ── */
+    var rows1 = "";
+    if (f.rg !== undefined) {
+      rows1 += metric("รายได้เติบโต", pc(f.rg),
+        f.rg >= 0.15 ? "โตเร็ว — ขายได้มากขึ้นชัดเจนเทียบปีก่อน"
+        : f.rg >= 0.03 ? "โตพอประมาณ"
+        : f.rg >= 0 ? "โตช้ามาก เกือบทรงตัว"
+        : "รายได้หดตัวจากปีก่อน",
+        f.rg >= 0.15 ? "good" : f.rg < 0 ? "bad" : "");
+    }
+    var eg = (f.eqg !== undefined && f.eqg !== null) ? f.eqg : f.eg;
+    if (eg !== undefined && eg !== null) {
+      rows1 += metric("กำไรเติบโต", pc(eg),
+        eg >= 0.15 ? "กำไรโตเร็วกว่ารายได้ = คุมต้นทุนได้ดี"
+        : eg >= 0 ? "กำไรยังโต แต่ไม่หวือหวา"
+        : "กำไรลดลงจากปีก่อน",
+        eg >= 0.15 ? "good" : eg < 0 ? "bad" : "");
+    }
+    if (f.pm !== undefined) {
+      rows1 += metric("อัตรากำไรสุทธิ", (f.pm * 100).toFixed(1) + "%",
+        "ขายได้ 100 บาท เหลือกำไรสุทธิ " + (f.pm * 100).toFixed(1) + " บาท" +
+        (f.pm >= 0.2 ? " — สูงมาก" : f.pm < 0.05 ? " — บางมาก" : ""),
+        f.pm >= 0.2 ? "good" : f.pm < 0.05 ? "bad" : "");
+    }
+    if (f.roe !== undefined) {
+      rows1 += metric("ROE", (f.roe * 100).toFixed(1) + "%",
+        "ทุกเงิน 100 บาทของผู้ถือหุ้น สร้างกำไรได้ " +
+        (f.roe * 100).toFixed(0) + " บาทต่อปี",
+        f.roe >= 0.15 ? "good" : f.roe < 0.07 ? "bad" : "");
+    }
+    if (rows1) {
+      out += '<h4>งบไตรมาสล่าสุดบอกอะไร</h4>' +
+        (e ? '<p class="exp">รวมแล้วได้เกรด <b>' + e.gradeTh + "</b> " +
+             e.score.toFixed(1) + " เต็ม 8 คะแนน</p>" : "") +
+        '<div class="mxgrid">' + rows1 + "</div>";
+    }
+
+    /* ── 2. ตลาดคาดหวังอะไร ── */
+    var rows2 = "";
+    if (f.pe && f.fpe) {
+      var chg = (f.fpe / f.pe - 1) * 100;
+      var grow = f.fpe < f.pe;
+      rows2 += metric("P/E ปัจจุบัน → คาดการณ์",
+        num(f.pe, 1) + " → " + num(f.fpe, 1) + " เท่า",
+        grow
+          ? "ตลาดคาดว่า<b>กำไรจะโตขึ้น</b> ปีหน้าราว " +
+            num((f.pe / f.fpe - 1) * 100, 0) + "% จึงยอมจ่าย P/E สูงตอนนี้"
+          : "ตลาดคาดว่า<b>กำไรจะลดลง</b> ปีหน้า จึงมองว่าราคานี้แพงกว่าที่เห็น",
+        grow ? "good" : "bad");
+    }
+    if (f.tgt) {
+      var up = (f.tgt / r.p - 1) * 100;
+      rows2 += metric("ราคาเป้าหมายนักวิเคราะห์", "$" + num(f.tgt, 2),
+        (up >= 0 ? "สูงกว่า" : "ต่ำกว่า") + "ราคาตอนนี้ " +
+        num(Math.abs(up), 1) + "%" +
+        (f.na ? " · จาก " + f.na + " สำนัก" : ""),
+        up >= 10 ? "good" : up <= -10 ? "bad" : "");
+    }
+    if (f.rec) {
+      var key = String(f.rec).toLowerCase().replace(/[\s-]/g, "");
+      rows2 += metric("คำแนะนำรวม", REC_TH[key] || f.rec,
+        "เป็นค่าเฉลี่ยความเห็นนักวิเคราะห์ ไม่ใช่การรับประกัน", "");
+    }
+    if (f.ed) {
+      var d2 = daysUntil(f.ed);
+      rows2 += metric("ประกาศงบครั้งหน้า", thDate(f.ed),
+        d2 === null ? "" : d2 > 0 ? "อีก " + d2 + " วัน"
+        : d2 === 0 ? "วันนี้" : "เลยมา " + (-d2) + " วันแล้ว",
+        d2 !== null && d2 < 0 ? "warn" : "");
+    }
+    if (rows2) {
+      out += '<h4>ตลาดคาดหวังอะไร</h4>' +
+        '<p class="exp">P/E คาดการณ์คือราคาหารด้วยกำไรที่นักวิเคราะห์<b>คาดว่าจะได้ปีหน้า</b> ' +
+        "ถ้าต่ำกว่า P/E ปัจจุบัน แปลว่าตลาดคาดว่ากำไรจะโตขึ้น</p>" +
+        '<div class="mxgrid">' + rows2 + "</div>";
+    }
+
+    /* ── 3. ราคาแพงหรือถูกเทียบเพื่อนในหมวด ── */
+    if (f.pe && med.pe && med.pe_n) {
+      var where, tone;
+      if (med.pe_q1 != null && f.pe < med.pe_q1) {
+        where = "ถูกกว่าหุ้นส่วนใหญ่ในหมวดนี้"; tone = "good";
+      } else if (med.pe_q3 != null && f.pe > med.pe_q3) {
+        where = "แพงกว่าหุ้นส่วนใหญ่ในหมวดนี้"; tone = "bad";
+      } else {
+        where = "อยู่ในช่วงปกติของหมวดนี้"; tone = "";
+      }
+      out += "<h4>เทียบกับเพื่อนในหมวด " + esc(r.g || "-") + "</h4>" +
+        '<div class="mxgrid">' +
+        metric("P/E ของหุ้นนี้", num(f.pe, 1) + " เท่า", where, tone) +
+        metric("ช่วงของหมวด",
+          (med.pe_q1 != null ? num(med.pe_q1, 1) + "–" + num(med.pe_q3, 1) : num(med.pe, 1)) +
+          " เท่า",
+          "กลาง " + num(med.pe, 1) + " เท่า · จาก " + med.pe_n + " ตัว" +
+          (med.pe_thin ? " (ตัวอย่างน้อย ใช้เทียบอย่างระวัง)" : ""),
+          med.pe_thin ? "warn" : "") +
+        "</div>";
+    }
+
+    /* ── 4. ขนาดกิจการและความมั่นคง ── */
+    var rows4 = "";
+    if (f.rev) rows4 += metric("รายได้ 12 เดือน", money(f.rev), "ขนาดของกิจการ", "");
+    if (f.fcf !== undefined) {
+      rows4 += metric("กระแสเงินสดอิสระ", money(f.fcf),
+        f.fcf > 0 ? "เงินสดที่เหลือหลังลงทุน — เป็นบวกคือดี"
+                  : "ติดลบ = ใช้เงินมากกว่าที่หาได้",
+        f.fcf > 0 ? "good" : "bad");
+    }
+    if (f.de !== undefined) {
+      rows4 += metric("หนี้ต่อทุน", num(f.de, 0) + "%",
+        "มีหนี้ " + num(f.de, 0) + " บาท ต่อทุนผู้ถือหุ้น 100 บาท" +
+        (f.de > 200 ? " — สูง" : f.de < 50 ? " — ต่ำ" : ""),
+        f.de > 200 ? "bad" : f.de < 50 ? "good" : "");
+    }
+    if (f.dy) {
+      rows4 += metric("ปันผลต่อปี", num(f.dy * 100, 2) + "%",
+        "ซื้อที่ราคานี้ ได้ปันผลปีละราว " + num(f.dy * 100, 2) + "%", "");
+    }
+    if (rows4) out += "<h4>ขนาดกิจการและความมั่นคง</h4>" +
+      '<div class="mxgrid">' + rows4 + "</div>";
+
+    /* ── คำเตือนและที่มา ── */
+    if (f.edold || f.qold) {
+      out += '<div class="staleq">' +
+        (f.edold
+          ? "เลยวันประกาศงบมา " + f.edold +
+            " วันแล้ว ตัวเลขทั้งหมดด้านบนยังเป็นงบไตรมาสก่อน ระบบจัดคิวดึงงบใหม่ให้แล้ว"
+          : "ไตรมาสล่าสุดเก่ากว่า " + f.qold + " วัน อาจมีงบใหม่ที่ยังไม่ได้ดึง") +
+        "</div>";
+    }
+    out += '<div class="efoot2">' +
+      (f.mrq ? "ตัวเลขจากงบไตรมาสถึง " + thDate(f.mrq) +
+               (o.age !== null ? " (" + o.age + " วันก่อน)" : "") : "ไม่ทราบไตรมาส") +
+      " · ทั้งหมดเป็นผลย้อนหลังที่รายงานแล้ว ยกเว้นส่วนที่ระบุว่าคาดการณ์" +
+      " · คลิกชื่อหุ้นเพื่อดูกราฟและระยะห่างจากเส้น EMA</div>";
+    return out;
+  }
+
   /* แถวย่อในมุมมองปฏิทิน — สั้น 2 บรรทัด กดเพื่อกางดูรายละเอียด */
   function earnRow(o, QT) {
     var r = o.r, e = o.e, f = r.f || {};
@@ -1146,11 +1317,120 @@
 
     var detail = "";
     if (open) {
+      /* อธิบายตัวเลขเป็นภาษาที่เข้าใจได้ ไม่ใช่โยนตัวเลขลอย ๆ
+         แต่ละอย่างบอกด้วยว่าตัวเลขนั้นแปลว่าอะไรในทางปฏิบัติ */
+
+      function pct(v) { return (v > 0 ? "+" : "") + (v * 100).toFixed(1) + "%"; }
+
+      // ── 1. งบไตรมาสล่าสุด พร้อมคำอธิบาย ──
+      function metric(label, val, explain, good, ok, fmt) {
+        if (val === null || val === undefined) return "";
+        var lvl = val >= good ? "p2" : val >= ok ? "p1" : "p0";
+        var word = val >= good ? "ดี" : val >= ok ? "พอใช้" : "อ่อน";
+        return '<div class="mrow ' + lvl + '">' +
+          '<div class="mtop"><span class="mlabel">' + label + "</span>" +
+            '<span class="mval">' + fmt(val) + "</span>" +
+            '<span class="mword">' + word + "</span></div>" +
+          '<div class="mwhy">' + explain + "</div></div>";
+      }
+
+      var eg2 = (f.eqg !== undefined && f.eqg !== null) ? f.eqg : f.eg;
+      var quarter =
+        metric("รายได้เติบโต", f.rg,
+               f.rg === undefined || f.rg === null ? "" :
+               (f.rg >= 0 ? "ขายได้มากกว่าไตรมาสเดียวกันปีก่อน " + pct(f.rg)
+                          : "ขายได้น้อยลงกว่าปีก่อน " + pct(f.rg)),
+               0.15, 0.03, pct) +
+        metric("กำไรเติบโต", eg2,
+               eg2 === undefined || eg2 === null ? "" :
+               (eg2 >= 0 ? "กำไรมากกว่าปีก่อน " + pct(eg2) + " — โตเร็วกว่ารายได้แปลว่าคุมต้นทุนได้ดี"
+                         : "กำไรน้อยลงกว่าปีก่อน " + pct(eg2)),
+               0.15, 0.0, pct) +
+        metric("อัตรากำไรสุทธิ", f.pm,
+               f.pm === undefined || f.pm === null ? "" :
+               "ขายได้ 100 บาท เหลือเป็นกำไรสุทธิ " + (f.pm * 100).toFixed(1) + " บาท",
+               0.15, 0.05, function (v) { return (v * 100).toFixed(1) + "%"; }) +
+        metric("ROE", f.roe,
+               f.roe === undefined || f.roe === null ? "" :
+               "เงินของผู้ถือหุ้นทุก 100 บาท สร้างกำไรได้ " + (f.roe * 100).toFixed(1) + " บาทต่อปี",
+               0.15, 0.07, function (v) { return (v * 100).toFixed(1) + "%"; });
+
+      // ── 2. ตลาดคาดหวังอะไร ──
+      var expect = "";
+      if (f.pe && f.fpe) {
+        var gap = (f.fpe / f.pe - 1) * 100;
+        var msg, cls3;
+        if (gap < -15) {
+          cls3 = "up";
+          msg = "P/E ปัจจุบัน <b>" + num(f.pe, 1) + "</b> เท่า แต่ P/E ที่คิดจากกำไรปีหน้าเหลือ <b>" +
+                num(f.fpe, 1) + "</b> เท่า — <b>ตลาดคาดว่ากำไรจะโตขึ้นมาก</b> " +
+                "ราคาที่ดูแพงตอนนี้จึงอาจถูกลงเองถ้ากำไรโตได้จริง";
+        } else if (gap > 15) {
+          cls3 = "down";
+          msg = "P/E ปัจจุบัน <b>" + num(f.pe, 1) + "</b> เท่า แต่ P/E ที่คิดจากกำไรปีหน้าขึ้นเป็น <b>" +
+                num(f.fpe, 1) + "</b> เท่า — <b>ตลาดคาดว่ากำไรจะลดลง</b>";
+        } else {
+          cls3 = "";
+          msg = "P/E ปัจจุบัน <b>" + num(f.pe, 1) + "</b> เท่า · คิดจากกำไรปีหน้า <b>" +
+                num(f.fpe, 1) + "</b> เท่า — <b>ตลาดคาดว่ากำไรจะทรงตัว</b>";
+        }
+        expect += '<div class="exrow ' + cls3 + '">' + msg + "</div>";
+      }
+      if (f.tgt && r.p) {
+        var up2 = (f.tgt / r.p - 1) * 100;
+        var RECTH = { strong_buy: "แนะนำซื้ออย่างยิ่ง", buy: "แนะนำซื้อ",
+                      hold: "แนะนำถือ", sell: "แนะนำขาย",
+                      strong_sell: "แนะนำขายอย่างยิ่ง", underperform: "ให้ผลต่ำกว่าตลาด",
+                      outperform: "ให้ผลดีกว่าตลาด" };
+        expect += '<div class="exrow ' + (up2 > 0 ? "up" : "down") + '">' +
+          "นักวิเคราะห์ให้ราคาเป้าหมาย <b>$" + num(f.tgt, 2) + "</b> " +
+          (up2 > 0 ? "สูงกว่า" : "ต่ำกว่า") + "ราคาตอนนี้ <b>" + num(Math.abs(up2), 1) + "%</b>" +
+          (f.na ? " (จาก " + f.na + " ราย" + (f.rec ? " · " + (RECTH[f.rec] || f.rec) : "") + ")" : "") +
+          "</div>";
+      }
+      if (expect) {
+        expect = '<div class="exbox"><div class="exhead">ตลาดคาดหวังอะไร</div>' + expect +
+          '<p class="exnote">ตัวเลขคาดการณ์มาจากนักวิเคราะห์ ไม่ใช่ผลจริง ' +
+          "และมักผิดบ่อยโดยเฉพาะช่วงที่ธุรกิจเปลี่ยนเร็ว</p></div>";
+      }
+
+      // ── 3. ราคาเทียบหมวด ──
+      var med2 = (D.meta.sector_med || {})[r.g] || {};
+      var val3 = "";
+      if (f.pe && med2.pe && med2.pe_q1 && med2.pe_q3) {
+        var where3, c4;
+        if (f.pe < med2.pe_q1) { where3 = "ถูกกว่าหุ้นส่วนใหญ่ในหมวดนี้"; c4 = "up"; }
+        else if (f.pe > med2.pe_q3) { where3 = "แพงกว่าหุ้นส่วนใหญ่ในหมวดนี้"; c4 = "down"; }
+        else { where3 = "อยู่ในช่วงปกติของหมวดนี้"; c4 = ""; }
+        val3 = '<div class="exbox"><div class="exhead">ราคาแพงหรือถูกเทียบเพื่อนในหมวด</div>' +
+          '<div class="exrow ' + c4 + '">P/E <b>' + num(f.pe, 1) + "</b> เท่า · <b>" + where3 +
+          "</b><br>หุ้นในหมวด" + esc(r.g) + "ส่วนใหญ่อยู่ที่ <b>" + med2.pe_q1 + "–" + med2.pe_q3 +
+          "</b> เท่า · กลาง " + med2.pe + " เท่า (จาก " + med2.pe_n + " ตัว)" +
+          (med2.pe_thin ? " — ตัวอย่างน้อย ใช้เทียบอย่างระวัง" : "") + "</div></div>";
+      }
+
+      // ── 4. ขนาดและฐานะการเงิน ──
+      var facts = [];
+      if (f.rev) facts.push(["รายได้ 12 เดือน", money(f.rev)]);
+      if (f.mc) facts.push(["มูลค่าบริษัท", money(f.mc)]);
+      if (f.fcf) facts.push(["กระแสเงินสดอิสระ",
+        (f.fcf < 0 ? "ติดลบ " : "") + money(Math.abs(f.fcf))]);
+      if (f.de !== undefined && f.de !== null)
+        facts.push(["หนี้ต่อทุน", num(f.de, 0) + "%"]);
+      if (f.dy) facts.push(["ปันผลต่อปี", num(f.dy * 100, 2) + "%"]);
+      if (f.eps) facts.push(["กำไรต่อหุ้น", "$" + num(f.eps, 2)]);
+      var factbox = facts.length
+        ? '<div class="exbox"><div class="exhead">ตัวเลขกิจการ</div><div class="factgrid">' +
+          facts.map(function (x) {
+            return '<div class="fact"><span class="fk">' + x[0] + '</span>' +
+                   '<span class="fv">' + x[1] + "</span></div>";
+          }).join("") + "</div></div>"
+        : "";
+
       detail = '<div class="erdetail">' +
-        '<div class="ebars">' + e.parts.map(function (pp) {
-          return '<div class="ebar p' + pp.p + '"><span class="ek">' + pp.label +
-                 '</span><span class="ev">' + pp.val + "</span></div>";
-        }).join("") + "</div>" +
+        '<div class="exbox"><div class="exhead">งบไตรมาสล่าสุดเป็นยังไง</div>' +
+        quarter + "</div>" +
+        expect + val3 + factbox +
         (f.edold || f.qold
           ? '<div class="staleq">' +
             (f.edold
@@ -1162,7 +1442,7 @@
           (f.mrq ? "งบไตรมาสถึง " + thDate(f.mrq) +
                    (o.age !== null ? " (" + o.age + " วันก่อน)" : "") : "ไม่ทราบไตรมาส") +
           (f.ed ? " · ประกาศงบครั้งหน้า " + thDate(f.ed) : "") +
-          " · คลิกชื่อหุ้นเพื่อดูรายละเอียดเต็ม" +
+          " · คลิกชื่อหุ้นเพื่อดูกราฟและเส้น EMA" +
         "</div></div>";
     }
 
@@ -1758,16 +2038,42 @@
       : "";
 
     // แถวเทียบกับค่ากลางหมวด
-    function cmpRow(label, val, medv, fmt, hint) {
+    /* เทียบค่ากับหมวดเดียวกัน
+
+       เดิมแสดงแค่ "สูงกว่าหมวด 24%" ซึ่งทำให้เข้าใจผิดได้
+       เพราะไม่รู้ว่าหมวดนั้นกระจายกว้างแค่ไหน และคิดจากกี่ตัว
+       เช่นหมวดเทคโนโลยีมี P/E ตั้งแต่ 13 ถึง 60 เท่า
+       หุ้นที่ P/E 40 จึงไม่ได้ "แพง" จริง แค่อยู่ค่อนไปทางบนของกลุ่ม
+
+       ตอนนี้บอกตำแหน่งในกลุ่มแทน พร้อมช่วงที่หุ้นส่วนใหญ่อยู่และจำนวนตัวอย่าง  */
+    function cmpRow(label, val, key, fmt, hint) {
       if (val == null) return "";
+      var medv = med[key], n = med[key + "_n"],
+          q1 = med[key + "_q1"], q3 = med[key + "_q3"],
+          thin = med[key + "_thin"];
       var right = "";
-      if (medv != null && medv > 0 && val > 0) {
-        var diff = (val / medv - 1) * 100;
-        var cls2 = diff > 15 ? "down" : diff < -15 ? "up" : "";
-        var word = diff > 15 ? "สูงกว่าหมวด" : diff < -15 ? "ต่ำกว่าหมวด" : "ใกล้เคียงหมวด";
-        right = '<span class="cmp ' + cls2 + '">' + word + " " +
-                Math.abs(diff).toFixed(0) + "%</span>" +
-                '<span class="medv">ค่ากลางหมวด ' + fmt(medv) + "</span>";
+
+      if (medv != null && medv > 0 && val > 0 && n) {
+        var where, cls2;
+        if (q1 != null && q3 != null) {
+          // บอกตำแหน่งเทียบกลุ่ม ไม่ใช่แค่ห่างจากค่ากลางกี่ %
+          if (val < q1) { where = "ถูกกว่าหุ้นส่วนใหญ่ในหมวด"; cls2 = "up"; }
+          else if (val > q3) { where = "แพงกว่าหุ้นส่วนใหญ่ในหมวด"; cls2 = "down"; }
+          else { where = "อยู่ในช่วงปกติของหมวด"; cls2 = ""; }
+        } else {
+          var diff = (val / medv - 1) * 100;
+          cls2 = diff > 15 ? "down" : diff < -15 ? "up" : "";
+          where = diff > 15 ? "สูงกว่าหมวด" : diff < -15 ? "ต่ำกว่าหมวด" : "ใกล้เคียงหมวด";
+        }
+
+        right = '<span class="cmp ' + cls2 + '">' + where + "</span>" +
+          '<span class="medv">' +
+            (q1 != null && q3 != null
+              ? "ส่วนใหญ่ " + fmt(q1) + "–" + fmt(q3) + " · กลาง " + fmt(medv)
+              : "ค่ากลางหมวด " + fmt(medv)) +
+            " · จาก " + n + " ตัว" +
+            (thin ? ' <span class="thin">ตัวอย่างน้อย เชื่อได้จำกัด</span>' : "") +
+          "</span>";
       }
       return '<div class="frow"><div class="fk">' + label +
              (hint ? '<span class="fh">' + hint + "</span>" : "") + "</div>" +
@@ -1776,13 +2082,13 @@
     }
 
     var valuation =
-      cmpRow("P/E", f.pe, med.pe, function (v) { return num(v, 1) + " เท่า"; },
+      cmpRow("P/E", f.pe, "pe", function (v) { return num(v, 1) + " เท่า"; },
              f.eps ? "= " + r.p + " ÷ " + num(f.eps, 2) : "ราคาเป็นกี่เท่าของกำไรต่อหุ้น") +
-      cmpRow("P/E คาดการณ์", f.fpe, null, function (v) { return num(v, 1) + " เท่า"; },
+      cmpRow("P/E คาดการณ์", f.fpe, "__none", function (v) { return num(v, 1) + " เท่า"; },
              "คิดจากกำไรที่นักวิเคราะห์คาดปีหน้า") +
-      cmpRow("P/BV", f.pb, med.pb, function (v) { return num(v, 2) + " เท่า"; },
+      cmpRow("P/BV", f.pb, "pb", function (v) { return num(v, 2) + " เท่า"; },
              "ราคาเป็นกี่เท่าของมูลค่าทางบัญชี") +
-      cmpRow("P/S", f.ps, med.ps, function (v) { return num(v, 2) + " เท่า"; },
+      cmpRow("P/S", f.ps, "ps", function (v) { return num(v, 2) + " เท่า"; },
              "ราคาเป็นกี่เท่าของรายได้");
 
     if (!valuation) valuation = '<p class="mnote">ไม่มีข้อมูลอัตราส่วนราคา</p>';
@@ -1790,14 +2096,30 @@
     // สรุปว่าแพงหรือถูกเทียบเพื่อนในหมวด
     var verdict = "";
     if (f.pe != null && med.pe) {
-      var d = (f.pe / med.pe - 1) * 100;
-      var t = d > 25 ? ["แพงกว่าค่ากลางของหมวดพอสมควร", "down"]
-            : d > 10 ? ["สูงกว่าค่ากลางของหมวดเล็กน้อย", ""]
-            : d < -25 ? ["ถูกกว่าค่ากลางของหมวดพอสมควร", "up"]
-            : d < -10 ? ["ต่ำกว่าค่ากลางของหมวดเล็กน้อย", ""]
-            : ["อยู่ในระดับใกล้เคียงค่ากลางของหมวด", ""];
+      // บอกตำแหน่งในกลุ่มโดยใช้ช่วง 25–75% แทนการวัดระยะจากค่ากลาง
+      // เพราะหมวดที่กระจายกว้าง การห่างจากค่ากลาง 25% อาจยังอยู่กลางกลุ่มก็ได้
+      var q1 = med.pe_q1, q3 = med.pe_q3, n = med.pe_n;
+      var t;
+      if (q1 != null && q3 != null) {
+        t = f.pe > q3 ? ["แพงกว่าหุ้นส่วนใหญ่ในหมวดนี้", "down"]
+          : f.pe < q1 ? ["ถูกกว่าหุ้นส่วนใหญ่ในหมวดนี้", "up"]
+          : ["อยู่ในช่วงปกติของหมวดนี้", ""];
+      } else {
+        var d = (f.pe / med.pe - 1) * 100;
+        t = d > 25 ? ["สูงกว่าค่ากลางของหมวดพอสมควร", "down"]
+          : d < -25 ? ["ต่ำกว่าค่ากลางของหมวดพอสมควร", "up"]
+          : ["ใกล้เคียงค่ากลางของหมวด", ""];
+      }
       verdict = '<div class="verdict ' + t[1] + '">P/E ' + num(f.pe, 1) +
-        " เท่า · " + t[0] + " (" + esc(r.g) + " ค่ากลาง " + num(med.pe, 1) + ")</div>";
+        " เท่า · " + t[0] +
+        (q1 != null && q3 != null
+          ? " — หุ้นในหมวด" + esc(r.g) + "ส่วนใหญ่อยู่ที่ " +
+            num(q1, 1) + "–" + num(q3, 1) + " เท่า (จาก " + n + " ตัว)"
+          : " (" + esc(r.g) + " ค่ากลาง " + num(med.pe, 1) + ")") +
+        (med.pe_thin
+          ? '<br><span class="thin">ค่ากลางหมวดนี้คิดจากตัวอย่างน้อย ' +
+            "ใช้เทียบอย่างระวัง</span>" : "") +
+        "</div>";
     } else if (f.pe == null && !f.recheck) {
       // ไม่มี P/E และไม่ใช่เพราะรอดึงใหม่ = บริษัทขาดทุนจริง
       verdict = '<div class="verdict">ไม่มีค่า P/E — มักหมายถึงบริษัทยังขาดทุนอยู่ ' +
@@ -2029,11 +2351,6 @@
     seg("bzSig", "bzSig", null, renderBuzz);
     seg("bzDir", "bzDir", null, renderBuzz);
     seg("bzN", "bzN", Number, renderBuzz);
-    $("bzVol").addEventListener("input", function (e) {
-      st.bzVol = Number(e.target.value);
-      $("bzVolOut").textContent = st.bzVol.toFixed(1) + " เท่า";
-      later(renderBuzz);
-    });
     seg("idx", "idx", null, renderEma);
     seg("tf", "tf", null, function () {
       updateTfNote();
