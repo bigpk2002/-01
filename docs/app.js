@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "21";          // เลขนี้ต้องตรงกับใน index.html
+  var VERSION = "22";          // เลขนี้ต้องตรงกับใน index.html
   var D = null, EMAS = [], PERIODS = [];
   var TREND_TH = { up: "ขาขึ้น", down: "ขาลง", flat: "ออกข้าง" };
   var PAGE_TITLE = {
@@ -28,7 +28,7 @@
     idx: "all", tf: "d", tol: 1.5, minNear: 1, trend: "all", side: "both", pe: "all", lines: [],
     topPeriod: "1m", topDir: "up", topSector: "", topTheme: "",
     topCount: 10, topCap: "all",
-    eView: "cal", eOpen: {}, eSecOpen: {},
+    eView: "cal", eOpen: {}, eSecOpen: {}, eJustDays: 7,
     eQuad: "all", eGrade: "all", eRecent: "all",
     eQ: "", eSector: "", eTheme: "", eSort: "score",
     cMode: "theme", cGroup: "", cView: "table", cSort: "score",
@@ -980,6 +980,8 @@
      เพื่อไม่ให้บังของที่กำลังจะเกิดขึ้นจริง                              */
 
   var EARN_BUCKETS = [
+    { k: "just", icon: "✅", name: "เพิ่งประกาศไป ข้อมูลอัปเดตแล้ว",
+      why: "รายงานงบชุดใหม่ไปแล้วและเราได้ตัวเลขมาแล้ว — กางดูได้เลยว่าออกมาเป็นยังไง" },
     { k: "today", icon: "📢", name: "ประกาศวันนี้",
       why: "บริษัทรายงานผลประกอบการวันนี้" },
     { k: "week", icon: "📅", name: "ภายในสัปดาห์นี้",
@@ -1004,7 +1006,11 @@
     return Math.round((t - today.getTime()) / 86400000);
   }
 
-  function earnBucket(f) {
+  function earnBucket(f, r) {
+    // เพิ่งได้งบชุดใหม่มาภายในช่วงที่กำหนด = ข่าวสดที่สุด ให้ขึ้นก่อน
+    // ดูจากที่ระบบสังเกตเห็นเอง ไม่ได้ดูจาก ed เพราะ ed คือวันประกาศครั้งหน้า
+    if (r && r.rq !== undefined && r.rq <= st.eJustDays) return "just";
+
     // จัดกลุ่มตามวันที่ประกาศเป็นหลัก
     // ตัวที่ไตรมาสเก่าแต่ยังไม่ถึงวันประกาศ ยังอยู่กลุ่มตามวันปกติ
     // แล้วติดป้ายเตือนบนแถวแทน ไม่งั้นจะบังข้อมูลว่ามันกำลังจะประกาศเร็ว ๆ นี้
@@ -1310,9 +1316,12 @@
     var chg = r.r[di] || 0;
     var qd = o.quad ? QT[o.quad] : null;
     var d = daysUntil(f.ed);
-    var when = f.ed
-      ? (d === 0 ? "วันนี้" : d > 0 ? "อีก " + d + " วัน" : "เลยมา " + (-d) + " วัน")
-      : "ไม่ทราบวัน";
+    var isJust = (r.rq !== undefined && r.rq <= st.eJustDays);
+    var when = isJust
+      ? (r.rq === 0 ? "งบใหม่วันนี้" : "งบใหม่ " + r.rq + " วันก่อน")
+      : (f.ed
+          ? (d === 0 ? "วันนี้" : d > 0 ? "อีก " + d + " วัน" : "เลยมา " + (-d) + " วัน")
+          : "ไม่ทราบวัน");
     var open = !!st.eOpen[r.s];
 
     var detail = "";
@@ -1449,7 +1458,7 @@
     return '<div class="erow' + (open ? " open" : "") + '">' +
       '<div class="erhead" data-eopen="' + esc(r.s) + '" role="button" tabindex="0">' +
         starIcon(r.s) +
-        '<span class="erwhen' + (d === 0 ? " now" : d < 0 ? " late" : "") + '">' +
+        '<span class="erwhen' + (isJust ? " fresh" : d === 0 ? " now" : d < 0 ? " late" : "") + '">' +
           when + "</span>" +
         '<span class="tk" data-tk="' + esc(r.s) + '" role="button" tabindex="0">' +
           esc(r.s) + "</span>" +
@@ -1471,7 +1480,7 @@
   function renderEarnCalendar(out, QT) {
     var groups = {};
     out.forEach(function (o) {
-      var k = earnBucket(o.r.f || {});
+      var k = earnBucket(o.r.f || {}, o.r);
       (groups[k] = groups[k] || []).push(o);
     });
 
@@ -1480,15 +1489,20 @@
       if (!list.length) return "";
       // เรียงตามวันที่ประกาศ ใกล้สุดขึ้นก่อน · กลุ่มเลยกำหนดเรียงจากเลยมานานสุด
       list.sort(function (a, b) {
+        if (B.k === "just") {
+          // เพิ่งเห็นล่าสุดขึ้นก่อน แล้วค่อยดูเกรดงบ
+          return (a.r.rq || 0) - (b.r.rq || 0) || b.e.score - a.e.score;
+        }
         var da = daysUntil((a.r.f || {}).ed), db = daysUntil((b.r.f || {}).ed);
         if (da === null && db === null) return b.e.score - a.e.score;
         if (da === null) return 1;
         if (db === null) return -1;
-        return B.k === "late" ? da - db : da - db;
+        return da - db;
       });
       // กลุ่มที่ใกล้จะประกาศกางไว้เลย ส่วนกลุ่มใหญ่ที่ยังอีกนานย่อไว้ก่อน
       // ไม่งั้นหน้าจะยาวเป็นหมื่นพิกเซลจนหาอะไรไม่เจอ
-      var alwaysOpen = (B.k === "today" || B.k === "week");
+      // กลุ่มที่เป็นข่าวสดกางไว้ครบเลย ไม่ต้องกดดูเพิ่ม
+      var alwaysOpen = (B.k === "just" || B.k === "today" || B.k === "week");
       var opened = alwaysOpen || st.eSecOpen[B.k];
       var LIMIT = 10;
       var show = opened ? list : list.slice(0, LIMIT);
@@ -2368,6 +2382,7 @@
       st.topTheme = e.target.value; renderTop();
     });
     seg("eView", "eView", null, function () { st.eOpen = {}; renderEarn(); });
+    seg("eJust", "eJustDays", Number, function () { st.eOpen = {}; renderEarn(); });
     seg("eQuad", "eQuad", null, renderEarn);
     seg("eGrade", "eGrade", null, renderEarn);
     seg("eRecent", "eRecent", null, renderEarn);
