@@ -719,3 +719,6 @@ button.card.down{border-left-color:var(--down)}
 .fk{font-size:11px;color:var(--faint)}
 .fv{font-size:13.5px;font-weight:600;font-family:ui-monospace,Consolas,monospace}
 @media(max-width:600px){.mlabel{min-width:0}}
+
+/* แถวที่เพิ่งได้งบชุดใหม่ */
+.erwhen.fresh{color:var(--up);font-weight:700}
