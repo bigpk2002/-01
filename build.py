@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import binascii
+import math
 import csv
 import io
 import json
@@ -620,7 +621,10 @@ def fetch_fundamentals(symbols: list[str], existing: dict,
                 "om": float(rng.uniform(-.05, .45)),
                 "rev": float(rng.uniform(5e8, 4e11)),
                 "fcf": float(rng.uniform(-2e9, 8e10)),
-                "mrq": (today - timedelta(days=int(rng.integers(20, 110)))).isoformat(),
+                # ใช้ seed ประจำตัวหุ้น เพื่อให้ค่าเดิมทุกครั้งที่รัน
+                # ไม่งั้นทุกตัวจะดูเหมือนมีงบใหม่ทุกรอบ
+                "mrq": (today - timedelta(
+                    days=20 + stable_seed(s + "q") % 90)).isoformat(),
                 "ed": (today + timedelta(days=int(rng.integers(3, 90)))).isoformat(),
                 "dy": float(rng.uniform(0, .05)),
                 "eps": float(eps_v),
@@ -910,7 +914,7 @@ def load_prev() -> dict:
         return {}
 
 
-def snapshot(rows: list[dict], date: str) -> dict:
+def snapshot(rows: list[dict], date: str, seen: dict | None = None) -> dict:
     """ย่อสถานะวันนี้ให้เหลือเท่าที่ต้องใช้เทียบพรุ่งนี้"""
     out = {}
     for r in rows:
@@ -925,7 +929,39 @@ def snapshot(rows: list[dict], date: str) -> dict:
             "n": near,                       # เส้นที่อยู่ในระยะ ณ วันนั้น
             "a": r.get("a", 0),
         }
-    return {"date": date, "rows": out}
+    return {"date": date, "rows": out, "seen": seen or {}}
+
+
+def track_new_quarters(rows: list[dict], prev_seen: dict, today: str) -> dict:
+    """จำว่าเห็นงบไตรมาสชุดใหม่ของแต่ละตัวครั้งแรกเมื่อไหร่
+
+    ทำไมต้องจำเอง: ฟิลด์ ed ของ Yahoo คือวันประกาศ "ครั้งหน้า"
+    พอบริษัทรายงานแล้ว Yahoo จะเลื่อนไปไตรมาสถัดไปทันที
+    เราจึงย้อนดูจาก ed ไม่ได้ว่าใครเพิ่งประกาศไป
+
+    วิธีที่เชื่อถือได้คือดูว่า mostRecentQuarter เปลี่ยนไปจากรอบก่อนหรือไม่
+    ถ้าเปลี่ยน แปลว่างบชุดใหม่เข้ามาแล้ว บันทึกวันที่เราเห็นครั้งแรกไว้
+    """
+    seen = {}
+    changed = 0
+    for r in rows:
+        mrq = (r.get("f") or {}).get("mrq")
+        if not mrq:
+            continue
+        old_rec = prev_seen.get(r["s"])
+        if old_rec and old_rec.get("mrq") == mrq:
+            seen[r["s"]] = old_rec              # ไตรมาสเดิม เก็บวันที่เห็นครั้งแรกไว้
+        elif old_rec:
+            # เคยมีของเก่าแล้วไตรมาสเปลี่ยน = สังเกตเห็นการรายงานงบจริง
+            seen[r["s"]] = {"mrq": mrq, "on": today, "chg": 1}
+            changed += 1
+        else:
+            # เพิ่งเจอครั้งแรก ไม่ได้แปลว่าเพิ่งรายงาน แค่เราเพิ่งเริ่มเก็บ
+            # ห้ามติดธง ไม่งั้นรอบแรกจะขึ้นทั้งกระดาน
+            seen[r["s"]] = {"mrq": mrq, "on": today}
+    if changed:
+        print(f"  พบงบไตรมาสชุดใหม่ {changed} ตัว")
+    return seen
 
 
 def save_prev(snap: dict) -> None:
@@ -934,9 +970,40 @@ def save_prev(snap: dict) -> None:
         json.dump(snap, f, ensure_ascii=False, separators=(",", ":"))
 
 
+MED_MIN_N = 10            # ตัวอย่างน้อยกว่านี้ ค่ากลางไม่น่าเชื่อถือพอจะเอาไปเทียบ
+
+
+def quartiles(vals: list[float]) -> tuple[float, float, float]:
+    """คืนค่า 25% · 50% · 75% ด้วยวิธี linear interpolation
+
+    ใช้เองแทน statistics.quantiles เพื่อให้ผลตรงกับที่ JavaScript คำนวณ
+    และเพื่อให้ตรวจสอบย้อนได้ง่าย
+    """
+    v = sorted(vals)
+    n = len(v)
+
+    def at(p: float) -> float:
+        if n == 1:
+            return v[0]
+        k = (n - 1) * p
+        lo, hi = math.floor(k), math.ceil(k)
+        return v[lo] if lo == hi else v[lo] * (hi - k) + v[hi] * (k - lo)
+
+    return at(0.25), at(0.50), at(0.75)
+
+
 def sector_medians(rows: list[dict], demo: bool = False) -> dict:
-    """ค่ากลางของแต่ละหมวดธุรกิจ ใช้เทียบว่าหุ้นตัวนี้แพงหรือถูกกว่าเพื่อนในหมวด"""
-    from statistics import median
+    """ค่ากลางของแต่ละหมวดธุรกิจ ใช้เทียบว่าหุ้นตัวนี้แพงหรือถูกกว่าเพื่อนในหมวด
+
+    เก็บมากกว่าค่ากลางอย่างเดียว เพราะตัวเลขเดียวทำให้เข้าใจผิดได้ง่าย
+    เช่นหมวดเทคโนโลยีมี P/E ตั้งแต่ 13 ถึง 60 เท่า การบอกแค่ "34" ไม่ได้บอกว่า
+    หุ้นที่ P/E 40 นั้นแพงจริงหรือแค่อยู่กลาง ๆ ของกลุ่ม
+
+    จึงเก็บเพิ่ม
+      n   จำนวนตัวอย่างที่ใช้คิด — น้อยเกินไปก็ไม่ควรเชื่อ
+      q1  ค่าที่ 25% ของกลุ่ม
+      q3  ค่าที่ 75% ของกลุ่ม
+    """
     buckets: dict[str, dict[str, list]] = {}
     for r in rows:
         f = r.get("f")
@@ -949,9 +1016,28 @@ def sector_medians(rows: list[dict], demo: bool = False) -> dict:
             v = f.get(k)
             if v is not None and 0 < v < 500:
                 b[k].append(v)
+
     out = {}
+    thin = []
     for g, b in buckets.items():
-        out[g] = {k: round(median(v), 2) for k, v in b.items() if len(v) >= 4}
+        item = {}
+        for k, v in b.items():
+            if len(v) < 4:
+                continue                      # น้อยมากจนคำนวณไม่มีความหมาย
+            q1, med, q3 = quartiles(v)
+            item[k] = round(med, 2)
+            item[k + "_n"] = len(v)
+            item[k + "_q1"] = round(q1, 2)
+            item[k + "_q3"] = round(q3, 2)
+            if len(v) < MED_MIN_N:
+                item[k + "_thin"] = 1         # ธงบอกว่าตัวอย่างน้อย ใช้เทียบอย่างระวัง
+        if item:
+            out[g] = item
+            if any(item.get(k + "_thin") for k in ("pe", "pb", "ps")):
+                thin.append(f"{g} ({item.get('pe_n', 0)} ตัว)")
+
+    if thin:
+        print(f"  หมวดที่ตัวอย่างน้อยกว่า {MED_MIN_N} ตัว: {', '.join(thin[:6])}")
     return out
 
 
@@ -1246,6 +1332,26 @@ def main() -> int:
             if o and o.get("p"):
                 r["pc"] = round((r["p"] / o["p"] - 1) * 100, 2) + 0.0
 
+    # ── ติดตามว่าตัวไหนเพิ่งรายงานงบชุดใหม่ ──
+    seen_new = track_new_quarters(rows, prev.get("seen") or {}, today_str)
+    reported_recent = 0
+    for r in rows:
+        rec = seen_new.get(r["s"])
+        if not rec or not rec.get("on"):
+            continue
+        try:
+            ago = (datetime.fromisoformat(today_str).date()
+                   - datetime.fromisoformat(rec["on"]).date()).days
+        except ValueError:
+            continue
+        # ติดธงเฉพาะตัวที่เรา "สังเกตเห็น" ว่าไตรมาสเปลี่ยนจริง (chg)
+        # และเห็นภายใน 30 วัน มากกว่านั้นไม่ใช่ข่าวใหม่แล้ว
+        if rec.get("chg") and 0 <= ago <= 30:
+            r["rq"] = ago
+            reported_recent += 1
+    if reported_recent:
+        print(f"  รายงานงบใหม่ภายใน 30 วัน {reported_recent} ตัว")
+
     if prev_rows:
         if same_day:
             print(f"สถานะเดิมเป็นของวันเดียวกัน ({prev_date}) "
@@ -1273,6 +1379,7 @@ def main() -> int:
             "weekly_count": sum(1 for r in rows if "w" in r),
             "prev_date": prev_date,
             "fresh_count": sum(1 for r in rows if "nw" in r),
+            "reported_count": sum(1 for r in rows if "rq" in r),
             "near_tol": NEAR_TOL,
             "weekly_date": wk.get("date", "-"),
             "sector_med": sector_medians(rows, a.demo),
@@ -1312,9 +1419,18 @@ def main() -> int:
     # เก็บสถานะวันนี้ไว้เทียบรอบหน้า
     # ถ้ารันซ้ำวันเดิมจะไม่ทับ ไม่งั้น "เพิ่งมาถึงเส้น" จะหายไปทั้งหมด
     if last_date is not None and not same_day:
-        save_prev(snapshot(rows, today_str))
+        save_prev(snapshot(rows, today_str, seen_new))
     elif not os.path.exists(PREV_PATH) and last_date is not None:
-        save_prev(snapshot(rows, today_str))
+        save_prev(snapshot(rows, today_str, seen_new))
+    elif same_day and os.path.exists(PREV_PATH):
+        # รันซ้ำวันเดิม ไม่ทับสถานะ EMA แต่ต้องเก็บ seen ไว้
+        # ไม่งั้นถ้าดึงงบใหม่ได้ในรอบที่สองของวัน จะลืมว่าเห็นแล้ว
+        try:
+            cur = load_prev()
+            cur["seen"] = seen_new
+            save_prev(cur)
+        except Exception:
+            pass
 
     size = os.path.getsize(OUT) / 1024
     print(f"เขียนไฟล์ -> {OUT} ({size:.0f} KB)")
