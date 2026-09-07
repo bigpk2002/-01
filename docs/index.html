@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#070b13">
 <title>AI Map — แผนที่หุ้น AI และตัวหาเส้น EMA</title>
 <meta name="description" content="แผนที่หุ้น AI ตามธีมธุรกิจ และตัวหาหุ้นที่ราคาใกล้เส้น EMA จาก S&P 500 + Nasdaq 100">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 <div class="wrap">
@@ -246,6 +246,13 @@
           <span class="lab">มุมมอง</span>
           <button class="on" data-v="cal">ตามปฏิทินประกาศงบ</button>
           <button data-v="grid">แบบเดิม (จับคู่งบกับราคา)</button>
+        </div>
+        <div class="seg" id="eJust">
+          <span class="lab">นับว่า “เพิ่งประกาศ” ภายใน</span>
+          <button data-v="3">3 วัน</button>
+          <button class="on" data-v="7">7 วัน</button>
+          <button data-v="14">14 วัน</button>
+          <button data-v="30">30 วัน</button>
         </div>
       </div>
       <div class="line" id="eQuadLine">
@@ -495,6 +502,6 @@
   </footer>
 </div>
 
-<script src="app.js?v=21"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>
